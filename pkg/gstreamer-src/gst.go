@@ -10,7 +10,6 @@ package gst
 import "C"
 import (
 	"fmt"
-	"net"
 	"sync"
 	"time"
 	"unsafe"
@@ -30,7 +29,6 @@ type Pipeline struct {
 	id        int
 	codecName string
 	clockRate float32
-	conn      *net.UDPConn
 }
 
 var pipelines = make(map[int]*Pipeline)
@@ -43,8 +41,8 @@ const (
 )
 
 // CreatePipeline creates a GStreamer Pipeline
-//pipelineSink videoSrc := " autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! queue"
-func CreatePipeline(codecName string, tracks []*webrtc.TrackLocalStaticSample, pipelineSrc string, conn *net.UDPConn) *Pipeline {
+// pipelineSink videoSrc := " autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! queue"
+func CreatePipeline(codecName string, tracks []*webrtc.TrackLocalStaticSample, pipelineSrc string) *Pipeline {
 	//pipelineStr := "tee name=t ! appsink name=appsink t. ! queue ! flvmux ! rtmpsink location='rtmp://live-push.bilivideo.com/live-bvc/?streamname=live_443203481_72219565&key=0c399147659bfa24be5454360c227c21&schedule=rtmp&pflag=1'"
 	//pipelineStr := "tee name=t ! appsink name=appsink t. ! queue ! videoconvert ! flvmux ! filesink location=test.flv"
 	pipelineStr := "appsink name=appsink"
@@ -80,8 +78,8 @@ func CreatePipeline(codecName string, tracks []*webrtc.TrackLocalStaticSample, p
 		//pipelineStr = "autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! tee name =t ! queue ! appsink name=appsink t. ! queue ! flvmux ! filesink location=test.flv "
 		//pipelineStr = "autovideosrc ! video/x-raw,width=640, height=480 ! videoconvert ! video/x-raw,format=I420 ! tee name=t ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! video/x-h264,stream-format=byte-stream ! queue ! appsink name=appsink t. ! queue ! x264enc ! flvmux !  rtmpsink location='rtmp://live-push.bilivideo.com/live-bvc/?streamname=live_443203481_72219565&key=0c399147659bfa24be5454360c227c21&schedule=rtmp&pflag=1'"
 		//pipelineStr = "autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! tee name =t ! queue ! appsink name=appsink"
-		pipelineStr = pipelineSrc + " ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! " + pipelineStr
-		//pipelineStr = pipelineSrc + " ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! video/x-h264,stream-format=byte-stream ! " + pipelineStr
+		//pipelineStr = pipelineSrc + " ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! " + pipelineStr
+		pipelineStr = pipelineSrc + " ! video/x-raw,format=I420 ! x264enc speed-preset=ultrafast tune=zerolatency key-int-max=20 ! video/x-h264,stream-format=byte-stream ! " + pipelineStr
 		clockRate = videoClockRate
 		codecName = "h264"
 
@@ -117,7 +115,6 @@ func CreatePipeline(codecName string, tracks []*webrtc.TrackLocalStaticSample, p
 		id:        len(pipelines),
 		codecName: codecName,
 		clockRate: clockRate,
-		conn:      conn,
 	}
 
 	pipelines[pipeline.id] = pipeline
@@ -147,21 +144,6 @@ func goHandlePipelineBuffer(buffer unsafe.Pointer, bufferLen C.int, duration C.i
 			if err := t.WriteSample(media.Sample{Data: C.GoBytes(buffer, bufferLen), Duration: time.Duration(duration)}); err != nil {
 				panic(err)
 			}
-
-			if pipeline.codecName == "h264" {
-				go func(conn *net.UDPConn, buffer unsafe.Pointer, bufferLen C.int) {
-					/*defer func(){
-					if err := recover(); err!=nil{
-						fmt.Println("conn recover err:",err)
-						}
-					}()
-					* */
-					_, err1 := conn.Write(C.GoBytes(buffer, bufferLen)[0:bufferLen])
-					if err1 != nil {
-						panic(err1)
-					}
-				}(pipeline.conn, buffer, bufferLen)
-			} //if pipeline.codecName == "h264" {
 		} //for
 	} else {
 		fmt.Printf("discarding buffer, no pipeline with id %d", int(pipelineID))
