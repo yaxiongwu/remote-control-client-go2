@@ -25,7 +25,7 @@ import (
 	log "github.com/pion/ion-log"
 	"github.com/pion/rtp"
 
-	sdk "github.com/yaxiongwu/remote-control-client-go"
+	sdk "github.com/yaxiongwu/remote-control-client-go2"
 	//ilog "github.com/pion/ion-log"
 	"github.com/pion/mediadevices"
 	"github.com/pion/webrtc/v3"
@@ -62,7 +62,7 @@ func main() {
 
 	// parse flag
 	var session, addr string
-	//cmd := exec.Command("ffplay -i /home/wuyaxiong/webrtc/remote-control-client-go/client/rtp-forwarder.sdp -protocol_whitelist file,udp,rtp")
+	//cmd := exec.Command("ffplay -i /home/wuyaxiong/webrtc/remote-control-client-go2/client/rtp-forwarder.sdp -protocol_whitelist file,udp,rtp")
 	//cmd := exec.Command("ls")
 	//ffplay -i rtp-forwarder.sdp -protocol_whitelist file,udp,rtp
 	//cmd := exec.Command("ffplay", "-i", "rtp-forwarder.sdp", "-protocol_whitelist", "file,udp,rtp")

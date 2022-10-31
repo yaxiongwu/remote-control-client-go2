@@ -12,7 +12,7 @@ import (
 	log "github.com/pion/ion-log"
 	"github.com/pion/rtp"
 
-	sdk "github.com/yaxiongwu/remote-control-client-go"
+	sdk "github.com/yaxiongwu/remote-control-client-go2"
 	//ilog "github.com/pion/ion-log"
 
 	"github.com/pion/webrtc/v3"
@@ -30,9 +30,9 @@ import (
 	"github.com/hajimehoshi/oto/v2"
 	_ "github.com/pion/mediadevices/pkg/driver/camera"     // This is required to register camera adapter
 	_ "github.com/pion/mediadevices/pkg/driver/microphone" // This is required to register microphone adapter
-	gst "github.com/yaxiongwu/remote-control-client-go/pkg/gstreamer-src"
-	opusdecoder "github.com/yaxiongwu/remote-control-client-go/pkg/opus/decoder"
-	"github.com/yaxiongwu/remote-control-client-go/pkg/rtmpudp"
+	gst "github.com/yaxiongwu/remote-control-client-go2/pkg/gstreamer-src"
+	opusdecoder "github.com/yaxiongwu/remote-control-client-go2/pkg/opus/decoder"
+	"github.com/yaxiongwu/remote-control-client-go2/pkg/rtmpudp"
 )
 
 type udpConn struct {

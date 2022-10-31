@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yaxiongwu/remote-control-server/pkg/proto/rtc"
 	log "github.com/pion/ion-log"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/yaxiongwu/remote-control-server2/pkg/proto/rtc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,7 +32,7 @@ const (
 	API_CHANNEL = "ion-sfu"
 )
 
-//Call dc api
+// Call dc api
 type Call struct {
 	StreamID string `json:"streamId"`
 	Video    string `json:"video"`
@@ -216,7 +216,7 @@ func (r *RTC) start(signaller Signaller) {
 	})
 }
 
-//能否不要重新建立Transport?一直用那两个sub和pub?
+// 能否不要重新建立Transport?一直用那两个sub和pub?
 func (r *RTC) ReStart() {
 
 	r.pub.pc.Close()

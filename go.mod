@@ -1,4 +1,4 @@
-module github.com/yaxiongwu/remote-control-client-go
+module github.com/yaxiongwu/remote-control-client-go2
 
 go 1.17
 

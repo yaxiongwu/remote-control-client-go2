@@ -1,4 +1,4 @@
-# remote-control-client-go
+# remote-control-client-go2
 功能探讨：
 1.提供视频、音频、直播等功能，可配置
 2.能在网页上配置树莓派的端口，第一次连接后，发送配置信息到网页，网页能提供相应的控制界面

@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 
-	sdk "github.com/yaxiongwu/remote-control-client-go"
+	sdk "github.com/yaxiongwu/remote-control-client-go2"
 	ilog "github.com/pion/ion-log"
 	"github.com/pion/mediadevices"
 	"github.com/pion/webrtc/v3"
