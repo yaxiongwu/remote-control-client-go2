@@ -160,6 +160,8 @@ github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/yaxiongwu/remote-control-server v0.0.0-20220810010705-c4191131a4ec h1:Fyq1Hfw/nu1iixjTBE7Ez0ISQOLONNHBqUwIbQxx/wY=
 github.com/yaxiongwu/remote-control-server v0.0.0-20220810010705-c4191131a4ec/go.mod h1:j0md2ayZQRV7blYCyUwB8aQnPC/dDN5wDAwuJNiN3A8=
+github.com/yaxiongwu/remote-control-server2 v0.0.0-20221031093910-1cc7507b9277 h1:bY2I4GmDEWdR/SxaFbGJHW1ODIoA9PYdwPWCzfzrtf8=
+github.com/yaxiongwu/remote-control-server2 v0.0.0-20221031093910-1cc7507b9277/go.mod h1:WtLMFC1/VrLiANrDoP3mdN5nIOKC/0euUbdcslyAUxk=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/proto/otlp v0.7.0/go.mod h1:PqfVotwruBrMGOCsRd/89rSnXhoiJIqeYNgFYFoEGnI=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

@@ -8,6 +8,7 @@ import (
 
 // Transport is pub/sub transport
 type Transport struct {
+	id             string
 	api            *webrtc.DataChannel
 	rtc            *RTC
 	pc             *webrtc.PeerConnection

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,8 @@ import (
 	log "github.com/pion/ion-log"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/yaxiongwu/remote-control-server2/pkg/proto/rtc"
+	gst "github.com/yaxiongwu/remote-control-client-go2/pkg/gstreamer-src"
+	"github.com/yaxiongwu/remote-control-client-go2/pkg/proto/rtc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -138,9 +140,10 @@ type RTC struct {
 
 	config *RTCConfig
 
-	uid string
-	pub *Transport
-	sub *Transport
+	uid     string
+	pub     *Transport
+	sub     *Transport
+	clients []*Client
 
 	//export to user
 	OnTrack       func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
@@ -164,6 +167,9 @@ type RTC struct {
 	sync.Mutex
 	OnPubIceConnectionStateChange func(webrtc.ICEConnectionState)
 	OnSubIceConnectionStateChange func(webrtc.ICEConnectionState)
+	OnIceConnectionStateChange    func(webrtc.ICEConnectionState, *webrtc.PeerConnection)
+	VedioTrack                    *webrtc.TrackLocalStaticSample
+	AudioTrack                    *webrtc.TrackLocalStaticSample
 }
 
 func withConfig(config ...RTCConfig) *RTC {
@@ -184,6 +190,31 @@ func NewRTC(connector *Connector, config ...RTCConfig) (*RTC, error) {
 	r := withConfig(config...)
 	signaller, err := connector.Signal(r)
 	r.start(signaller)
+	audioSrc := " autoaudiosrc ! audio/x-raw"
+	//omxh264enc可能需要设置长宽为32倍整数，否则会出现"green band"，一道偏色栏
+	videoSrc := " autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! queue"
+	//videoSrc := flag.String("video-src", "videotestsrc", "GStreamer video src")
+	flag.Parse()
+	// Create a video track
+	//videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/vp8"}, "video", "pion2")
+	//var err error
+	r.VedioTrack, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/H264"}, "video", "pion2")
+	if err != nil {
+		panic(err)
+	}
+	// Create a audio track
+	r.AudioTrack, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "audio/opus"}, "audio", "pion1")
+	if err != nil {
+		panic(err)
+	}
+
+	//rtmpudp := rtmpudp.Init("5000")
+	//gst.CreatePipeline("vp8", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc).Start()
+	//gst.CreatePipeline("h264_x264", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc, rtmpudp.GetConn()).Start()
+	//gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{audioTrack}, audioSrc, rtmpudp.GetConn()).Start()
+	gst.CreatePipeline("h264_x264", []*webrtc.TrackLocalStaticSample{r.VedioTrack}, videoSrc).Start()
+	gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{r.AudioTrack}, audioSrc).Start()
+
 	return r, err
 }
 
@@ -194,26 +225,48 @@ func NewRTCWithSignaller(signaller Signaller, config ...RTCConfig) *RTC {
 	return r
 }
 
+// func (r *RTC) start(signaller Signaller) {
+// 	r.signaller = signaller
+
+// 	if !r.Connected() {
+// 		r.Connect()
+// 	}
+// 	r.pub = NewTransport(Target_PUBLISHER, r)
+// 	//r.sub = NewTransport(Target_PUBLISHER, r)
+// 	//吴亚雄修改
+// 	r.sub = NewTransport(Target_SUBSCRIBER, r)
+// 	r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+// 		if r.OnSubIceConnectionStateChange != nil {
+// 			r.OnSubIceConnectionStateChange(state)
+// 		}
+// 	})
+// 	r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+// 		if r.OnPubIceConnectionStateChange != nil {
+// 			r.OnPubIceConnectionStateChange(state)
+// 		}
+// 	})
+// }
+
 func (r *RTC) start(signaller Signaller) {
 	r.signaller = signaller
 
 	if !r.Connected() {
 		r.Connect()
 	}
-	r.pub = NewTransport(Target_PUBLISHER, r)
-	//r.sub = NewTransport(Target_PUBLISHER, r)
-	//吴亚雄修改
-	r.sub = NewTransport(Target_SUBSCRIBER, r)
-	r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if r.OnSubIceConnectionStateChange != nil {
-			r.OnSubIceConnectionStateChange(state)
-		}
-	})
-	r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if r.OnPubIceConnectionStateChange != nil {
-			r.OnPubIceConnectionStateChange(state)
-		}
-	})
+	// r.pub = NewTransport(Target_PUBLISHER, r)
+	// //r.sub = NewTransport(Target_PUBLISHER, r)
+	// //吴亚雄修改
+	// r.sub = NewTransport(Target_SUBSCRIBER, r)
+	// r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+	// 	if r.OnSubIceConnectionStateChange != nil {
+	// 		r.OnSubIceConnectionStateChange(state)
+	// 	}
+	// })
+	// r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+	// 	if r.OnPubIceConnectionStateChange != nil {
+	// 		r.OnPubIceConnectionStateChange(state)
+	// 	}
+	// })
 }
 
 // 能否不要重新建立Transport?一直用那两个sub和pub?
@@ -471,6 +524,33 @@ func (r *RTC) trickle(candidate webrtc.ICECandidateInit, target Target) {
 	}
 }
 
+// receiveTrickle2 receive candidate from sfu and add to pc
+func (r *RTC) receiveTrickle2(candidate webrtc.ICECandidateInit, from string) {
+	log.Debugf("[S=>C] id= candidate=%v from=%v", candidate, from)
+	//var t *Transport
+	// if target == Target_SUBSCRIBER {
+	// 	t = r.sub
+	// } else {
+	// 	t = r.pub
+	// }
+	for _, client := range r.clients {
+		if client.Id == from {
+			log.Debugf("candidates from :%v", from)
+			if client.pc.CurrentRemoteDescription() == nil {
+				log.Debugf("client.pc.CurrentRemoteDescription() == nil ")
+				client.RecvCandidates = append(client.RecvCandidates, candidate)
+			} else {
+				log.Debugf("client.pc.AddICECandidate() candidate:%v", candidate)
+				err := client.pc.AddICECandidate(candidate)
+				if err != nil {
+					log.Errorf("to=%v err=%v", from, err)
+				}
+			}
+		}
+	}
+
+}
+
 // negotiate sub negotiate
 func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 	//log.Debugf("[S=>C] id=%v Negotiate sdp=%v", r.uid, sdp)
@@ -521,6 +601,147 @@ func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 	}
 	return err
 }
+
+// func (r *RTC) getNewOffer(uid string, sdp webrtc.SessionDescription) error {
+// 	log.Debugf("getNewOffer id=%v Negotiate sdp=%v", uid, sdp)
+// 	// 1.sub set remote sdp
+// 	client := NewClient(uid, r)
+// 	r.clients = append(r.clients, client)
+// 	err := client.pc.SetRemoteDescription(sdp)
+// 	if err != nil {
+// 		log.Errorf("uid=%v Negotiate client.pc.SetRemoteDescription err=%v", uid, err)
+// 		return err
+// 	}
+
+// 	// 2. safe to send candiate to sfu after join ok
+// 	if len(client.SendCandidates) > 0 {
+// 		for _, cand := range client.SendCandidates {
+// 			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
+// 			r.SendTrickle2(cand, uid)
+// 		}
+// 		client.SendCandidates = []*webrtc.ICECandidate{}
+// 	}
+
+// 	// 3. safe to add candidate after SetRemoteDescription
+// 	if len(client.RecvCandidates) > 0 {
+// 		for _, candidate := range client.RecvCandidates {
+// 			log.Debugf("uid=%v r.sub.pc.AddICECandidate candidate=%v", uid, candidate)
+// 			_ = client.pc.AddICECandidate(candidate)
+// 		}
+// 		client.RecvCandidates = []webrtc.ICECandidateInit{}
+// 	}
+
+// 	// 4. create answer after add ice candidate
+// 	answer, err := client.pc.CreateAnswer(nil)
+// 	if err != nil {
+// 		log.Errorf("id=%v err=%v", r.uid, err)
+// 		return err
+// 	}
+
+// 	// 5. set local sdp(answer)
+// 	err = client.pc.SetLocalDescription(answer)
+// 	if err != nil {
+// 		log.Errorf("id=%v err=%v", r.uid, err)
+// 		return err
+// 	}
+
+// 	// 6. send answer to sfu
+// 	err = r.SendAnswer2(answer, uid)
+// 	if err != nil {
+// 		log.Errorf("id=%v err=%v", r.uid, err)
+// 		return err
+// 	}
+// 	return err
+// }
+
+// func (r *RTC) getWantControlRequest(uid string, sdp webrtc.SessionDescription) error {
+func (r *RTC) getWantControlRequest(uid string) error {
+	log.Debugf("getWantControlRequest from %v ", uid)
+	// 1.sub set remote sdp
+	client := NewClient(uid, r, rtc.Role_Control)
+	r.clients = append(r.clients, client)
+
+	if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
+		log.Errorf("AddTrack error: %v", err)
+	}
+	if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
+		log.Errorf("AddTrack error: %v", err)
+	}
+
+	offer, err := client.pc.CreateOffer(nil)
+	log.Infof("offer: %v", offer)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+	}
+
+	// 2. pub set local sdp(offer)
+	err = client.pc.SetLocalDescription(offer)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+	}
+
+	//3. send offer to sfu
+	// err = r.SendOffer(offer)
+	// if err != nil {
+	// 	log.Errorf("id=%v err=%v", r.uid, err)
+	// }
+
+	// err := client.pc.SetRemoteDescription(sdp)
+	// if err != nil {
+	// 	log.Errorf("uid=%v Negotiate client.pc.SetRemoteDescription err=%v", uid, err)
+	// 	return err
+	// }
+
+	// 2. safe to send candiate to sfu after join ok
+	if len(client.SendCandidates) > 0 {
+		for _, cand := range client.SendCandidates {
+			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
+			r.SendTrickle2(cand, uid)
+		}
+		client.SendCandidates = []*webrtc.ICECandidate{}
+	}
+
+	// 3. safe to add candidate after SetRemoteDescription
+	if len(client.RecvCandidates) > 0 {
+		for _, candidate := range client.RecvCandidates {
+			log.Debugf("uid=%v r.sub.pc.AddICECandidate candidate=%v", uid, candidate)
+			_ = client.pc.AddICECandidate(candidate)
+		}
+		client.RecvCandidates = []webrtc.ICECandidateInit{}
+	}
+
+	// if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
+	// 	log.Errorf("AddTrack error: %v", err)
+	// }
+	// if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
+	// 	log.Errorf("AddTrack error: %v", err)
+	// }
+
+	// // 4. create answer after add ice candidate
+	// //option := &webrtc.AnswerOptions{}
+	// answer, err := client.pc.CreateAnswer(nil)
+	// if err != nil {
+	// 	log.Errorf("id=%v err=%v", r.uid, err)
+	// 	return err
+	// }
+
+	// // 5. set local sdp(answer)
+	// err = client.pc.SetLocalDescription(answer)
+	// if err != nil {
+	// 	log.Errorf("id=%v err=%v", r.uid, err)
+	// 	return err
+	// }
+
+	// 6. send answer to sfu
+
+	err = r.SendWantControlReply(offer, uid)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+		return err
+	}
+	return err
+}
+
 func (r *RTC) Reconnect() {
 	r.onNegotiationNeeded()
 }
@@ -681,6 +902,51 @@ func (r *RTC) setRemoteSDP(sdp webrtc.SessionDescription) error {
 	return nil
 }
 
+// setRemoteSDP pub SetRemoteDescription and send cadidate to sfu
+func (r *RTC) setClientRemoteSDP(sdp webrtc.SessionDescription, from string) error {
+	for _, client := range r.clients {
+		if client.Id == from {
+			log.Infof("get remote description from:%v", from)
+			err := client.pc.SetRemoteDescription(sdp)
+			if err != nil {
+				log.Errorf("id=%v err=%v", r.uid, err)
+				return err
+			}
+			//log.Infof("set remote description:%v", sdp)
+
+			// it's safe to add cand now after SetRemoteDescription
+			if client.RecvCandidates != nil {
+				if len(client.RecvCandidates) > 0 {
+					log.Infof("1")
+					for _, candidate := range client.RecvCandidates {
+						log.Debugf("id=%v client.pc..AddICECandidate candidate=%v", r.uid, candidate)
+						err = client.pc.AddICECandidate(candidate)
+						if err != nil {
+							log.Errorf("id=%v r.pub.pc.AddICECandidate err=%v", r.uid, err)
+						}
+					}
+					client.RecvCandidates = []webrtc.ICECandidateInit{}
+				}
+			}
+
+			// it's safe to send cand now after join ok
+			if client.SendCandidates != nil {
+				if len(client.SendCandidates) > 0 {
+					log.Infof("2")
+					for _, cand := range client.SendCandidates {
+						log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", from, cand)
+						r.SendTrickle2(cand, from)
+					}
+					client.SendCandidates = []*webrtc.ICECandidate{}
+				}
+			}
+
+		}
+	}
+
+	return nil
+}
+
 // GetBandWidth call this api cyclely
 func (r *RTC) GetBandWidth(cycle int) (int, int) {
 	var recvBW, sendBW int
@@ -788,16 +1054,33 @@ func (r *RTC) onSingalHandle() error {
 				}
 			} else if sdp.Type == webrtc.SDPTypeAnswer {
 				log.Infof("[%v] [description] got answer call sdp=%+v", r.uid, sdp)
-				err = r.setRemoteSDP(sdp)
+				//err = r.setRemoteSDP(sdp)
+				err = r.setClientRemoteSDP(sdp, payload.Description.From)
 				if err != nil {
 					log.Errorf("[%v] [description] setRemoteSDP err=%s", r.uid, err)
 				}
 			}
+		case *rtc.Reply_WantControl:
+			log.Infof("rtc.Reply_WantControl From : [%v]", payload.WantControl.From)
+			log.Infof("rtc.Reply_WantControl description: [%v]", payload.WantControl.Sdp)
+
+			// if payload.WantControl.SdpType == "offer" {
+			// 	sdp := webrtc.SessionDescription{
+			// 		SDP:  payload.WantControl.Sdp,
+			// 		Type: webrtc.SDPTypeOffer,
+			// 	}
+			log.Infof("wantControl from [%v] ", payload.WantControl.From)
+			err := r.getWantControlRequest(payload.WantControl.From)
+			if err != nil {
+				log.Errorf("error: %v", err)
+			}
+			//}
+
 		case *rtc.Reply_Trickle:
 			var candidate webrtc.ICECandidateInit
 			_ = json.Unmarshal([]byte(payload.Trickle.Init), &candidate)
-			//log.Infof("[%v] [trickle] type=%v candidate=%v", r.uid, payload.Trickle.Target, candidate)
-			r.trickle(candidate, Target(payload.Trickle.Target))
+			log.Infof("[%v] [trickle] from=%v to=%v candidate=%v", r.uid, payload.Trickle.From, payload.Trickle.To, candidate)
+			r.receiveTrickle2(candidate, payload.Trickle.From)
 		case *rtc.Reply_TrackEvent:
 			if r.OnTrackEvent == nil {
 				log.Errorf("s.OnTrackEvent == nil")
@@ -890,6 +1173,33 @@ func (r *RTC) SendTrickle(candidate *webrtc.ICECandidate, target Target) {
 	}
 }
 
+func (r *RTC) SendTrickle2(candidate *webrtc.ICECandidate, destination string) {
+	//log.Debugf("[C=>S] [%v] candidate=%v uid=%v", r.uid, candidate, destination)
+	log.Debugf("[C=>S] candidate=%v destination=%v", candidate, destination)
+	bytes, err := json.Marshal(candidate.ToJSON())
+	if err != nil {
+		log.Errorf("error: %v", err)
+		return
+	}
+
+	go r.onSingalHandleOnce()
+	r.Lock()
+	err = r.signaller.Send(
+		&rtc.Request{
+			Payload: &rtc.Request_Trickle{
+				Trickle: &rtc.Trickle{
+					To:   destination,
+					Init: string(bytes),
+				},
+			},
+		},
+	)
+	r.Unlock()
+	if err != nil {
+		log.Errorf("[%v] err=%v", r.uid, err)
+	}
+}
+
 func (r *RTC) SendOffer(sdp webrtc.SessionDescription) error {
 	log.Infof("[C=>S] [%v] sdp=%v", r.uid, sdp)
 	go r.onSingalHandleOnce()
@@ -923,6 +1233,51 @@ func (r *RTC) SendAnswer(sdp webrtc.SessionDescription) error {
 					Target: rtc.Target_SUBSCRIBER,
 					Type:   "answer",
 					Sdp:    sdp.SDP,
+				},
+			},
+		},
+	)
+	r.Unlock()
+	if err != nil {
+		log.Errorf("[%v] err=%v", r.uid, err)
+		return err
+	}
+	return nil
+}
+
+func (r *RTC) SendAnswer2(sdp webrtc.SessionDescription, to string) error {
+	log.Infof("[C=>S] [%v] to [%v] sdp=%v", r.uid, to, sdp)
+	r.Lock()
+	err := r.signaller.Send(
+		&rtc.Request{
+			Payload: &rtc.Request_Description{
+				Description: &rtc.SessionDescription{
+					Target: rtc.Target_SUBSCRIBER,
+					Type:   "answer",
+					Sdp:    sdp.SDP,
+					To:     to,
+				},
+			},
+		},
+	)
+	r.Unlock()
+	if err != nil {
+		log.Errorf("[%v] err=%v", r.uid, err)
+		return err
+	}
+	return nil
+}
+
+func (r *RTC) SendWantControlReply(sdp webrtc.SessionDescription, to string) error {
+	log.Infof("[C=>S] [%v] to [%v] sdp=%v", r.uid, to, sdp)
+	r.Lock()
+	err := r.signaller.Send(
+		&rtc.Request{
+			Payload: &rtc.Request_WantControlReply{
+				WantControlReply: &rtc.WantControlReply{
+					Sdp:     sdp.SDP,
+					SdpType: "offer",
+					To:      to,
 				},
 			},
 		},
@@ -1022,109 +1377,111 @@ func saveToDisk(i media.Writer, track *webrtc.TrackRemote) {
 }
 
 // Creata new session
-func (r *RTC) RegisterNewVideoSource(sid, uid string, config ...*JoinConfig) error {
-
-	log.Infof("[C=>S] sid: %v,uid:%v", sid, uid)
+func (r *RTC) RegisterNewVideoSource(uid, name string, sourceType rtc.SourceType, config ...*JoinConfig) error {
+	r.uid = uid
+	log.Infof("[C=>S] sid: %v,uid:%v", uid, name)
 	err := r.signaller.Send(
 		&rtc.Request{
 			Payload: &rtc.Request_Register{
 				Register: &rtc.RegisterRequest{
-					Sid:  sid,
+					//Sid: sid,
 					Uid:  uid,
-					Role: rtc.Role_Admin,
+					Name: name,
+					//Role: rtc.Role_Admin,
+					SourceType: sourceType,
 				},
 			},
 		},
 	)
 
-	r.pub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
+	// r.pub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+	// 	log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
 
-		// user define
-		// if r.OnTrack != nil {
-		// 	r.OnTrack(track, receiver)
-		// } else {
-		// 	//for read and calc
-		// 	b := make([]byte, 1500)
-		// 	for {
-		// 		select {
-		// 		case <-r.notify:
-		// 			return
-		// 		default:
-		// 			n, _, err := track.Read(b)
-		// 			if err != nil {
-		// 				if err == io.EOF {
-		// 					log.Errorf("id=%v track.ReadRTP err=%v", r.uid, err)
-		// 					return
-		// 				}
-		// 				log.Errorf("id=%v Error reading track rtp %s", r.uid, err)
-		// 				continue
-		// 			}
-		// 			r.recvByte += n
-		// 		}
-		// 	}
-		// }
+	// 	// user define
+	// 	// if r.OnTrack != nil {
+	// 	// 	r.OnTrack(track, receiver)
+	// 	// } else {
+	// 	// 	//for read and calc
+	// 	// 	b := make([]byte, 1500)
+	// 	// 	for {
+	// 	// 		select {
+	// 	// 		case <-r.notify:
+	// 	// 			return
+	// 	// 		default:
+	// 	// 			n, _, err := track.Read(b)
+	// 	// 			if err != nil {
+	// 	// 				if err == io.EOF {
+	// 	// 					log.Errorf("id=%v track.ReadRTP err=%v", r.uid, err)
+	// 	// 					return
+	// 	// 				}
+	// 	// 				log.Errorf("id=%v Error reading track rtp %s", r.uid, err)
+	// 	// 				continue
+	// 	// 			}
+	// 	// 			r.recvByte += n
+	// 	// 		}
+	// 	// 	}
+	// 	// }
 
-	})
+	// })
 
-	r.sub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
-		if r.OnTrack != nil {
-			r.OnTrack(track, receiver)
-		}
-		/*
-			codec := track.Codec()
-			if codec.MimeType == "audio/opus" {
-				fmt.Println("Got Opus track, saving to disk as output.ogg,clockRate:%v,channels:%v", codec.ClockRate, codec.Channels)
-				i, oggNewErr := oggwriter.New("output.ogg", codec.ClockRate, codec.Channels)
-				if oggNewErr != nil {
-					panic(oggNewErr)
-				}
-				saveToDisk(i, track)
-			} else if codec.MimeType == "video/VP8" {
-				fmt.Println("Got VP8 track, saving to disk as output.ivf")
-				i, ivfNewErr := ivfwriter.New("output.ivf")
-				if ivfNewErr != nil {
-					panic(ivfNewErr)
-				}
-				saveToDisk(i, track)
-			}
-		*/
+	// r.sub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+	// 	log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
+	// 	if r.OnTrack != nil {
+	// 		r.OnTrack(track, receiver)
+	// 	}
+	// 	/*
+	// 		codec := track.Codec()
+	// 		if codec.MimeType == "audio/opus" {
+	// 			fmt.Println("Got Opus track, saving to disk as output.ogg,clockRate:%v,channels:%v", codec.ClockRate, codec.Channels)
+	// 			i, oggNewErr := oggwriter.New("output.ogg", codec.ClockRate, codec.Channels)
+	// 			if oggNewErr != nil {
+	// 				panic(oggNewErr)
+	// 			}
+	// 			saveToDisk(i, track)
+	// 		} else if codec.MimeType == "video/VP8" {
+	// 			fmt.Println("Got VP8 track, saving to disk as output.ivf")
+	// 			i, ivfNewErr := ivfwriter.New("output.ivf")
+	// 			if ivfNewErr != nil {
+	// 				panic(ivfNewErr)
+	// 			}
+	// 			saveToDisk(i, track)
+	// 		}
+	// 	*/
 
-	})
+	// })
 
-	r.sub.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
-		if dc.Label() == API_CHANNEL {
-			log.Debugf("%v got dc %v", r.uid, dc.Label())
-			r.sub.api = dc
-			// send cmd after open
-			r.sub.api.OnOpen(func() {
-				log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
-				r.sub.api.SendText("wuyaxiong")
-				if len(r.apiQueue) > 0 {
-					for _, cmd := range r.apiQueue {
-						log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
-						marshalled, err := json.Marshal(cmd)
-						if err != nil {
-							continue
-						}
-						err = r.sub.api.Send(marshalled)
-						if err != nil {
-							log.Errorf("id=%v err=%v", r.uid, err)
-						}
-						time.Sleep(time.Millisecond * 10)
-					}
-					r.apiQueue = []Call{}
-				}
-			})
-			return
-		}
-		log.Debugf("%v got dc %v", r.uid, dc.Label())
-		if r.OnDataChannel != nil {
-			r.OnDataChannel(dc)
-		}
-	})
+	// r.sub.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+	// 	log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
+	// 	if dc.Label() == API_CHANNEL {
+	// 		log.Debugf("%v got dc %v", r.uid, dc.Label())
+	// 		r.sub.api = dc
+	// 		// send cmd after open
+	// 		r.sub.api.OnOpen(func() {
+	// 			log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
+	// 			r.sub.api.SendText("wuyaxiong")
+	// 			if len(r.apiQueue) > 0 {
+	// 				for _, cmd := range r.apiQueue {
+	// 					log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
+	// 					marshalled, err := json.Marshal(cmd)
+	// 					if err != nil {
+	// 						continue
+	// 					}
+	// 					err = r.sub.api.Send(marshalled)
+	// 					if err != nil {
+	// 						log.Errorf("id=%v err=%v", r.uid, err)
+	// 					}
+	// 					time.Sleep(time.Millisecond * 10)
+	// 				}
+	// 				r.apiQueue = []Call{}
+	// 			}
+	// 		})
+	// 		return
+	// 	}
+	// 	log.Debugf("%v got dc %v", r.uid, dc.Label())
+	// 	if r.OnDataChannel != nil {
+	// 		r.OnDataChannel(dc)
+	// 	}
+	// })
 	return err
 }
 
