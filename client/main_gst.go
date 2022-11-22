@@ -4,10 +4,11 @@
 package main
 
 import (
-	"flag"
+	"fmt"
 	"net"
 
 	sdk "github.com/yaxiongwu/remote-control-client-go2"
+
 	//ilog "github.com/pion/ion-log"
 
 	// Note: If you don't have a camera or microphone or your adapters are not supported,
@@ -20,9 +21,11 @@ import (
 
 	//"github.com/pion/mediadevices/pkg/codec/mmal"
 	//"github.com/pion/mediadevices/pkg/codec/vpx"
-
+	"github.com/BurntSushi/toml"
+	log "github.com/pion/ion-log"
 	_ "github.com/pion/mediadevices/pkg/driver/camera"     // This is required to register camera adapter
 	_ "github.com/pion/mediadevices/pkg/driver/microphone" // This is required to register microphone adapter
+	"github.com/pion/webrtc/v3"
 	rtcproto "github.com/yaxiongwu/remote-control-client-go2/pkg/proto/rtc"
 )
 
@@ -31,24 +34,29 @@ type udpConn struct {
 	port        int
 	payloadType uint8
 }
+type Config struct {
+	MaxTimeControl int
+	MaxTimeView    int
+	LogLevel       int8
+	Address        string
+}
 
 var (
-// log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
+	// log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
+	config Config
 )
 
 func main() {
 
-	var session, addr string
-	//flag.StringVar(&addr, "addr", "192.168.1.199:5551", "ion-sfu grpc addr")
-	flag.StringVar(&addr, "addr", "120.78.200.246:5551", "ion-sfu grpc addr")
-	flag.StringVar(&session, "session", "ion", "join session name")
+	configFilePath := "./config.toml"
+	if _, err := toml.DecodeFile(configFilePath, &config); err != nil {
+		fmt.Println("load config file error!", err)
+		return
+	}
+
 	// audioSrc := " autoaudiosrc ! audio/x-raw"
 	// //omxh264enc可能需要设置长宽为32倍整数，否则会出现"green band"，一道偏色栏
 	// videoSrc := " autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! queue"
-	// //videoSrc := flag.String("video-src", "videotestsrc", "GStreamer video src")
-	// flag.Parse()
-	// // Create a video track
-	// //videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/vp8"}, "video", "pion2")
 	// videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/H264"}, "video", "pion2")
 	// if err != nil {
 	// 	panic(err)
@@ -59,15 +67,13 @@ func main() {
 	// 	panic(err)
 	// }
 
-	// //rtmpudp := rtmpudp.Init("5000")
-	// //gst.CreatePipeline("vp8", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc).Start()
-	// //gst.CreatePipeline("h264_x264", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc, rtmpudp.GetConn()).Start()
-	// //gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{audioTrack}, audioSrc, rtmpudp.GetConn()).Start()
 	// gst.CreatePipeline("h264_x264", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc).Start()
 	// gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{audioTrack}, audioSrc).Start()
 
-	connector := sdk.NewConnector(addr)
+	connector := sdk.NewConnector(config.Address)
 	rtc, err := sdk.NewRTC(connector)
+	rtc.MaxTimeControl = config.MaxTimeControl
+	rtc.MaxTimeView = config.MaxTimeView
 	if err != nil {
 		panic(err)
 	}
@@ -90,15 +96,14 @@ func main() {
 	// 	}
 
 	// }
-	// rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
+	rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
 
-	// 	log.Infof("rtc.OnDatachannel:%v", dc.Label())
-	// 	dc.OnOpen(func() {
-	// 		log.Infof("%v,dc.onopen,dc.ReadyState:%v", dc.Label(), dc.ReadyState())
-	// 		//	dc.SendText("wuyaxiong nbcl")
-	// 	})
-
-	// }
+		log.Infof("rtc.OnDatachannel:%v", dc.Label())
+		dc.OnOpen(func() {
+			log.Infof("%v,dc.onopen,dc.ReadyState:%v", dc.Label(), dc.ReadyState())
+			//	dc.SendText("wuyaxiong nbcl")
+		})
+	}
 
 	// rtc.OnTrack = func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	// 	codec := track.Codec()

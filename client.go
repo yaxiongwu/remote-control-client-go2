@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"time"
+
 	"github.com/pion/ice/v2"
 	log "github.com/pion/ion-log"
 	"github.com/pion/webrtc/v3"
@@ -9,12 +11,15 @@ import (
 
 // Client is pub/sub transport
 type Client struct {
-	Id  string
-	api *webrtc.DataChannel
-	rtc *RTC
-	pc  *webrtc.PeerConnection
+	Id               string
+	dataChannel      *webrtc.DataChannel
+	rtc              *RTC
+	pc               *webrtc.PeerConnection
+	StartControlTime time.Time
+	StartViewTime    time.Time
+	ControlTimer     *time.Timer
 	//role           Target
-	role                       rtc.Role
+	Role                       rtc.Role
 	SendCandidates             []*webrtc.ICECandidate
 	RecvCandidates             []webrtc.ICECandidateInit
 	config                     *RTCConfig
@@ -27,7 +32,7 @@ func NewClient(uid string, rtc *RTC, role rtc.Role) *Client {
 		Id:     uid,
 		config: &DefaultConfig,
 		rtc:    rtc,
-		role:   role,
+		Role:   role,
 	}
 
 	c.SendCandidates = []*webrtc.ICECandidate{}
@@ -88,6 +93,30 @@ func NewClient(uid string, rtc *RTC, role rtc.Role) *Client {
 			rtc.OnIceConnectionStateChange(state, c.pc)
 		}
 		log.Debugf("IECConnectionStateChange to %v", state)
+		if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
+			for i, client := range rtc.clients {
+				if client.Id == c.Id {
+					rtc.clients = append(rtc.clients[:i], rtc.clients[i+1:]...)
+					break
+				}
+			}
+		}
+
+		//记录连接上的时间
+		if state == webrtc.ICEConnectionStateConnected {
+			c.StartControlTime = time.Now()
+			c.StartViewTime = time.Now()
+			c.ControlTimer = time.NewTimer(time.Duration(rtc.MaxTimeControl) * time.Second)
+			go func() {
+				for {
+					select {
+					case <-c.ControlTimer.C:
+						c.pc.Close()
+					}
+				}
+			}()
+			log.Debugf("startTime: %v", c.StartControlTime)
+		}
 	})
 
 	return c

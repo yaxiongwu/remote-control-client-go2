@@ -136,7 +136,9 @@ type Signaller interface {
 // Client a sdk client
 type RTC struct {
 	Service
-	connected bool
+	connected      bool
+	MaxTimeControl int
+	MaxTimeView    int
 
 	config *RTCConfig
 
@@ -658,6 +660,31 @@ func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 func (r *RTC) getWantControlRequest(uid string) error {
 	log.Debugf("getWantControlRequest from %v ", uid)
 	// 1.sub set remote sdp
+	for _, c := range r.clients {
+		log.Debugf("c.id:%v,c.Role:%v", c.Id, c.Role)
+		r.Lock()
+		if c.Role == rtc.Role_Control {
+			err := r.signaller.Send(
+				&rtc.Request{
+					Payload: &rtc.Request_WantControlReply{
+						WantControlReply: &rtc.WantControlReply{
+							To:                      uid,
+							Success:                 true,
+							IdleOrNot:               false,
+							RestTimeSecOfControling: 100,
+							NumOfWaiting:            1,
+						},
+					},
+				},
+			)
+			if err != nil {
+				log.Errorf("[%v] err=%v", r.uid, err)
+				return err
+			}
+		}
+		r.Unlock()
+		return nil
+	}
 	client := NewClient(uid, r, rtc.Role_Control)
 	r.clients = append(r.clients, client)
 
@@ -667,6 +694,48 @@ func (r *RTC) getWantControlRequest(uid string) error {
 	if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
 		log.Errorf("AddTrack error: %v", err)
 	}
+
+	client.dataChannel, _ = client.pc.CreateDataChannel("control", &webrtc.DataChannelInit{})
+	client.dataChannel.OnOpen(func() {
+		log.Debugf("client data channel opened")
+		client.dataChannel.SendText("wuyaxiong nb")
+	})
+	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		log.Debugf("client data channel messages:%s", msg)
+	})
+
+	// client.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+	// 	log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
+	// 	if dc.Label() == API_CHANNEL {
+	// 		log.Debugf("%v got dc %v", r.uid, dc.Label())
+	// 		r.sub.api = dc
+	// 		// send cmd after open
+	// 		r.sub.api.OnOpen(func() {
+	// 			log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
+	// 			r.sub.api.SendText("wuyaxiong")
+	// 			if len(r.apiQueue) > 0 {
+	// 				for _, cmd := range r.apiQueue {
+	// 					log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
+	// 					marshalled, err := json.Marshal(cmd)
+	// 					if err != nil {
+	// 						continue
+	// 					}
+	// 					err = r.sub.api.Send(marshalled)
+	// 					if err != nil {
+	// 						log.Errorf("id=%v err=%v", r.uid, err)
+	// 					}
+	// 					time.Sleep(time.Millisecond * 10)
+	// 				}
+	// 				r.apiQueue = []Call{}
+	// 			}
+	// 		})
+	// 		return
+	// 	}
+	// log.Debugf("%v got dc %v", r.uid, dc.Label())
+	// if r.OnDataChannel != nil {
+	// 	r.OnDataChannel(dc)
+	// }
+	//})
 
 	offer, err := client.pc.CreateOffer(nil)
 	log.Infof("offer: %v", offer)
@@ -917,7 +986,6 @@ func (r *RTC) setClientRemoteSDP(sdp webrtc.SessionDescription, from string) err
 			// it's safe to add cand now after SetRemoteDescription
 			if client.RecvCandidates != nil {
 				if len(client.RecvCandidates) > 0 {
-					log.Infof("1")
 					for _, candidate := range client.RecvCandidates {
 						log.Debugf("id=%v client.pc..AddICECandidate candidate=%v", r.uid, candidate)
 						err = client.pc.AddICECandidate(candidate)
@@ -932,7 +1000,6 @@ func (r *RTC) setClientRemoteSDP(sdp webrtc.SessionDescription, from string) err
 			// it's safe to send cand now after join ok
 			if client.SendCandidates != nil {
 				if len(client.SendCandidates) > 0 {
-					log.Infof("2")
 					for _, cand := range client.SendCandidates {
 						log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", from, cand)
 						r.SendTrickle2(cand, from)
@@ -940,7 +1007,6 @@ func (r *RTC) setClientRemoteSDP(sdp webrtc.SessionDescription, from string) err
 					client.SendCandidates = []*webrtc.ICECandidate{}
 				}
 			}
-
 		}
 	}
 
@@ -1275,9 +1341,10 @@ func (r *RTC) SendWantControlReply(sdp webrtc.SessionDescription, to string) err
 		&rtc.Request{
 			Payload: &rtc.Request_WantControlReply{
 				WantControlReply: &rtc.WantControlReply{
-					Sdp:     sdp.SDP,
-					SdpType: "offer",
-					To:      to,
+					Sdp:       sdp.SDP,
+					SdpType:   "offer",
+					To:        to,
+					IdleOrNot: true,
 				},
 			},
 		},
