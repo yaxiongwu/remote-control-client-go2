@@ -656,23 +656,23 @@ func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 // 	return err
 // }
 
-// func (r *RTC) getWantControlRequest(uid string, sdp webrtc.SessionDescription) error {
-func (r *RTC) getWantControlRequest(uid string) error {
-	log.Debugf("getWantControlRequest from %v ", uid)
+// func (r *RTC) getWantConnectRequest(uid string, sdp webrtc.SessionDescription) error {
+func (r *RTC) getWantConnectRequest(uid string) error {
+	log.Debugf("getWantConnectRequest from %v ", uid)
 	// 1.sub set remote sdp
 	for _, c := range r.clients {
 		log.Debugf("c.id:%v,c.Role:%v", c.Id, c.Role)
 		r.Lock()
-		if c.Role == rtc.Role_Control {
+		if c.Role == rtc.Role_Controler {
 			err := r.signaller.Send(
 				&rtc.Request{
-					Payload: &rtc.Request_WantControlReply{
-						WantControlReply: &rtc.WantControlReply{
-							To:                      uid,
-							Success:                 true,
-							IdleOrNot:               false,
-							RestTimeSecOfControling: 100,
-							NumOfWaiting:            1,
+					Payload: &rtc.Request_WantConnectReply{
+						WantConnectReply: &rtc.WantConnectReply{
+							To:           uid,
+							Success:      true,
+							IdleOrNot:    false,
+							RestTimeSecs: 100,
+							NumOfWaiting: 1,
 						},
 					},
 				},
@@ -685,7 +685,7 @@ func (r *RTC) getWantControlRequest(uid string) error {
 		r.Unlock()
 		return nil
 	}
-	client := NewClient(uid, r, rtc.Role_Control)
+	client := NewClient(uid, r, rtc.Role_Controler)
 	r.clients = append(r.clients, client)
 
 	if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
@@ -803,7 +803,7 @@ func (r *RTC) getWantControlRequest(uid string) error {
 
 	// 6. send answer to sfu
 
-	err = r.SendWantControlReply(offer, uid)
+	err = r.SendWantConnectReply(offer, uid)
 	if err != nil {
 		log.Errorf("id=%v err=%v", r.uid, err)
 		return err
@@ -1126,17 +1126,17 @@ func (r *RTC) onSingalHandle() error {
 					log.Errorf("[%v] [description] setRemoteSDP err=%s", r.uid, err)
 				}
 			}
-		case *rtc.Reply_WantControl:
-			log.Infof("rtc.Reply_WantControl From : [%v]", payload.WantControl.From)
-			log.Infof("rtc.Reply_WantControl description: [%v]", payload.WantControl.Sdp)
+		case *rtc.Reply_WantConnect:
+			log.Infof("rtc.Reply_WantConnect From : [%v]", payload.WantConnect.From)
+			log.Infof("rtc.Reply_WantConnect description: [%v]", payload.WantConnect.Sdp)
 
-			// if payload.WantControl.SdpType == "offer" {
+			// if payload.WantConnect.SdpType == "offer" {
 			// 	sdp := webrtc.SessionDescription{
-			// 		SDP:  payload.WantControl.Sdp,
+			// 		SDP:  payload.WantConnect.Sdp,
 			// 		Type: webrtc.SDPTypeOffer,
 			// 	}
-			log.Infof("wantControl from [%v] ", payload.WantControl.From)
-			err := r.getWantControlRequest(payload.WantControl.From)
+			log.Infof("wantConnect from [%v] ", payload.WantConnect.From)
+			err := r.getWantConnectRequest(payload.WantConnect.From)
 			if err != nil {
 				log.Errorf("error: %v", err)
 			}
@@ -1334,13 +1334,13 @@ func (r *RTC) SendAnswer2(sdp webrtc.SessionDescription, to string) error {
 	return nil
 }
 
-func (r *RTC) SendWantControlReply(sdp webrtc.SessionDescription, to string) error {
+func (r *RTC) SendWantConnectReply(sdp webrtc.SessionDescription, to string) error {
 	log.Infof("[C=>S] [%v] to [%v] sdp=%v", r.uid, to, sdp)
 	r.Lock()
 	err := r.signaller.Send(
 		&rtc.Request{
-			Payload: &rtc.Request_WantControlReply{
-				WantControlReply: &rtc.WantControlReply{
+			Payload: &rtc.Request_WantConnectReply{
+				WantConnectReply: &rtc.WantConnectReply{
 					Sdp:       sdp.SDP,
 					SdpType:   "offer",
 					To:        to,
