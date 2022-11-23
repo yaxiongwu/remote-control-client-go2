@@ -663,6 +663,7 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 	for _, c := range r.clients {
 		log.Debugf("c.id:%v,c.Role:%v", c.Id, c.Role)
 		r.Lock()
+		//如果有一个client的Role是controler，就回应忙，并附带时间信息
 		if c.Role == rtc.Role_Controler {
 			err := r.signaller.Send(
 				&rtc.Request{
@@ -738,7 +739,7 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 	//})
 
 	offer, err := client.pc.CreateOffer(nil)
-	log.Infof("offer: %v", offer)
+	//log.Infof("offer: %v", offer)
 	if err != nil {
 		log.Errorf("id=%v err=%v", r.uid, err)
 	}
@@ -1126,17 +1127,15 @@ func (r *RTC) onSingalHandle() error {
 					log.Errorf("[%v] [description] setRemoteSDP err=%s", r.uid, err)
 				}
 			}
-		case *rtc.Reply_WantConnect:
-			log.Infof("rtc.Reply_WantConnect From : [%v]", payload.WantConnect.From)
-			log.Infof("rtc.Reply_WantConnect description: [%v]", payload.WantConnect.Sdp)
-
+		case *rtc.Reply_WantConnectRequest:
+			log.Infof("rtc.Reply_WantConnect :%v,type:%v", payload.WantConnectRequest, payload.WantConnectRequest.ConnectType)
 			// if payload.WantConnect.SdpType == "offer" {
 			// 	sdp := webrtc.SessionDescription{
 			// 		SDP:  payload.WantConnect.Sdp,
 			// 		Type: webrtc.SDPTypeOffer,
 			// 	}
-			log.Infof("wantConnect from [%v] ", payload.WantConnect.From)
-			err := r.getWantConnectRequest(payload.WantConnect.From)
+			//log.Infof("wantConnect from [%v] ", payload.WantConnectRequest.From)
+			err := r.getWantConnectRequest(payload.WantConnectRequest.From)
 			if err != nil {
 				log.Errorf("error: %v", err)
 			}
@@ -1345,6 +1344,7 @@ func (r *RTC) SendWantConnectReply(sdp webrtc.SessionDescription, to string) err
 					SdpType:   "offer",
 					To:        to,
 					IdleOrNot: true,
+					Success:   true,
 				},
 			},
 		},
