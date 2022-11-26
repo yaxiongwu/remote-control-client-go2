@@ -227,232 +227,12 @@ func NewRTCWithSignaller(signaller Signaller, config ...RTCConfig) *RTC {
 	return r
 }
 
-// func (r *RTC) start(signaller Signaller) {
-// 	r.signaller = signaller
-
-// 	if !r.Connected() {
-// 		r.Connect()
-// 	}
-// 	r.pub = NewTransport(Target_PUBLISHER, r)
-// 	//r.sub = NewTransport(Target_PUBLISHER, r)
-// 	//吴亚雄修改
-// 	r.sub = NewTransport(Target_SUBSCRIBER, r)
-// 	r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-// 		if r.OnSubIceConnectionStateChange != nil {
-// 			r.OnSubIceConnectionStateChange(state)
-// 		}
-// 	})
-// 	r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-// 		if r.OnPubIceConnectionStateChange != nil {
-// 			r.OnPubIceConnectionStateChange(state)
-// 		}
-// 	})
-// }
-
 func (r *RTC) start(signaller Signaller) {
 	r.signaller = signaller
 
 	if !r.Connected() {
 		r.Connect()
 	}
-	// r.pub = NewTransport(Target_PUBLISHER, r)
-	// //r.sub = NewTransport(Target_PUBLISHER, r)
-	// //吴亚雄修改
-	// r.sub = NewTransport(Target_SUBSCRIBER, r)
-	// r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-	// 	if r.OnSubIceConnectionStateChange != nil {
-	// 		r.OnSubIceConnectionStateChange(state)
-	// 	}
-	// })
-	// r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-	// 	if r.OnPubIceConnectionStateChange != nil {
-	// 		r.OnPubIceConnectionStateChange(state)
-	// 	}
-	// })
-}
-
-// 能否不要重新建立Transport?一直用那两个sub和pub?
-func (r *RTC) ReStart() {
-
-	r.pub.pc.Close()
-	r.sub.pc.Close()
-	if !r.Connected() {
-		r.Connect()
-	}
-	r.pub = nil
-	r.sub = nil
-	r.pub = NewTransport(Target_PUBLISHER, r)
-	r.sub = NewTransport(Target_SUBSCRIBER, r)
-
-	r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if r.OnSubIceConnectionStateChange != nil {
-			r.OnSubIceConnectionStateChange(state)
-		}
-	})
-	r.pub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if r.OnPubIceConnectionStateChange != nil {
-			r.OnPubIceConnectionStateChange(state)
-		}
-	})
-
-	r.sub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
-		if r.OnTrack != nil {
-			r.OnTrack(track, receiver)
-		}
-		/*
-			codec := track.Codec()
-			if codec.MimeType == "audio/opus" {
-				fmt.Println("Got Opus track, saving to disk as output.ogg,clockRate:%v,channels:%v", codec.ClockRate, codec.Channels)
-				i, oggNewErr := oggwriter.New("output.ogg", codec.ClockRate, codec.Channels)
-				if oggNewErr != nil {
-					panic(oggNewErr)
-				}
-				saveToDisk(i, track)
-			} else if codec.MimeType == "video/VP8" {
-				fmt.Println("Got VP8 track, saving to disk as output.ivf")
-				i, ivfNewErr := ivfwriter.New("output.ivf")
-				if ivfNewErr != nil {
-					panic(ivfNewErr)
-				}
-				saveToDisk(i, track)
-			}
-		*/
-
-	})
-
-	r.sub.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
-		if dc.Label() == API_CHANNEL {
-			log.Debugf("%v got dc %v", r.uid, dc.Label())
-			r.sub.api = dc
-			// send cmd after open
-			r.sub.api.OnOpen(func() {
-				log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
-				r.sub.api.SendText("wuyaxiong")
-				if len(r.apiQueue) > 0 {
-					for _, cmd := range r.apiQueue {
-						log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
-						marshalled, err := json.Marshal(cmd)
-						if err != nil {
-							continue
-						}
-						err = r.sub.api.Send(marshalled)
-						if err != nil {
-							log.Errorf("id=%v err=%v", r.uid, err)
-						}
-						time.Sleep(time.Millisecond * 10)
-					}
-					r.apiQueue = []Call{}
-				}
-			})
-			return
-		}
-		log.Debugf("%v got dc %v", r.uid, dc.Label())
-		if r.OnDataChannel != nil {
-			r.OnDataChannel(dc)
-		}
-	})
-}
-
-// Join client join a session
-func (r *RTC) Join(sid, uid string, config ...*JoinConfig) error {
-	log.Infof("[C=>S] sid=%v uid=%v", sid, uid)
-	if uid == "" {
-		uid = RandomKey(6)
-	}
-	r.uid = uid
-	r.sub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
-
-		// user define
-		//	if r.OnTrack != nil {
-		//	r.OnTrack(track, receiver)
-		//	} else {
-		//for read and calc
-		b := make([]byte, 1500)
-		for {
-			select {
-			case <-r.notify:
-				return
-			default:
-				n, _, err := track.Read(b)
-				if err != nil {
-					if err == io.EOF {
-						log.Errorf("id=%v track.ReadRTP err=%v", r.uid, err)
-						return
-					}
-					log.Errorf("id=%v Error reading track rtp %s", r.uid, err)
-					continue
-				}
-				r.recvByte += n
-			}
-		}
-		//}
-	})
-
-	r.sub.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
-		if dc.Label() == API_CHANNEL {
-			log.Debugf("%v got dc %v", r.uid, dc.Label())
-			r.sub.api = dc
-			// send cmd after open
-			r.sub.api.OnOpen(func() {
-				if len(r.apiQueue) > 0 {
-					for _, cmd := range r.apiQueue {
-						log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
-						marshalled, err := json.Marshal(cmd)
-						if err != nil {
-							continue
-						}
-						err = r.sub.api.Send(marshalled)
-						if err != nil {
-							log.Errorf("id=%v err=%v", r.uid, err)
-						}
-						time.Sleep(time.Millisecond * 10)
-					}
-					r.apiQueue = []Call{}
-				}
-			})
-			return
-		}
-		log.Debugf("%v got dc %v", r.uid, dc.Label())
-		if r.OnDataChannel != nil {
-			r.OnDataChannel(dc)
-		}
-	})
-
-	r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if r.OnPubIceConnectionStateChange != nil {
-			r.OnPubIceConnectionStateChange(state)
-		}
-		if state >= webrtc.ICEConnectionStateDisconnected {
-			log.Infof("ICEConnectionStateDisconnected %v", state)
-
-		}
-	})
-
-	offer, err := r.pub.pc.CreateOffer(nil)
-	if err != nil {
-		return err
-	}
-
-	err = r.pub.pc.SetLocalDescription(offer)
-	if err != nil {
-		return err
-	}
-
-	if len(config) > 0 {
-		err = r.SendJoin(sid, r.uid, offer, *config[0])
-	} else {
-		err = r.SendJoin(sid, r.uid, offer, nil)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	return err
 }
 
 // GetPubStats get pub stats
@@ -529,12 +309,6 @@ func (r *RTC) trickle(candidate webrtc.ICECandidateInit, target Target) {
 // receiveTrickle2 receive candidate from sfu and add to pc
 func (r *RTC) receiveTrickle2(candidate webrtc.ICECandidateInit, from string) {
 	log.Debugf("[S=>C] id= candidate=%v from=%v", candidate, from)
-	//var t *Transport
-	// if target == Target_SUBSCRIBER {
-	// 	t = r.sub
-	// } else {
-	// 	t = r.pub
-	// }
 	for _, client := range r.clients {
 		if client.Id == from {
 			log.Debugf("candidates from :%v", from)
@@ -604,61 +378,14 @@ func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 	return err
 }
 
-// func (r *RTC) getNewOffer(uid string, sdp webrtc.SessionDescription) error {
-// 	log.Debugf("getNewOffer id=%v Negotiate sdp=%v", uid, sdp)
-// 	// 1.sub set remote sdp
-// 	client := NewClient(uid, r)
-// 	r.clients = append(r.clients, client)
-// 	err := client.pc.SetRemoteDescription(sdp)
-// 	if err != nil {
-// 		log.Errorf("uid=%v Negotiate client.pc.SetRemoteDescription err=%v", uid, err)
-// 		return err
-// 	}
+func (r *RTC) refuseWantConnect(uid string, connectType rtc.ConnectType) error {
 
-// 	// 2. safe to send candiate to sfu after join ok
-// 	if len(client.SendCandidates) > 0 {
-// 		for _, cand := range client.SendCandidates {
-// 			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
-// 			r.SendTrickle2(cand, uid)
-// 		}
-// 		client.SendCandidates = []*webrtc.ICECandidate{}
-// 	}
-
-// 	// 3. safe to add candidate after SetRemoteDescription
-// 	if len(client.RecvCandidates) > 0 {
-// 		for _, candidate := range client.RecvCandidates {
-// 			log.Debugf("uid=%v r.sub.pc.AddICECandidate candidate=%v", uid, candidate)
-// 			_ = client.pc.AddICECandidate(candidate)
-// 		}
-// 		client.RecvCandidates = []webrtc.ICECandidateInit{}
-// 	}
-
-// 	// 4. create answer after add ice candidate
-// 	answer, err := client.pc.CreateAnswer(nil)
-// 	if err != nil {
-// 		log.Errorf("id=%v err=%v", r.uid, err)
-// 		return err
-// 	}
-
-// 	// 5. set local sdp(answer)
-// 	err = client.pc.SetLocalDescription(answer)
-// 	if err != nil {
-// 		log.Errorf("id=%v err=%v", r.uid, err)
-// 		return err
-// 	}
-
-// 	// 6. send answer to sfu
-// 	err = r.SendAnswer2(answer, uid)
-// 	if err != nil {
-// 		log.Errorf("id=%v err=%v", r.uid, err)
-// 		return err
-// 	}
-// 	return err
-// }
+}
 
 // func (r *RTC) getWantConnectRequest(uid string, sdp webrtc.SessionDescription) error {
-func (r *RTC) getWantConnectRequest(uid string) error {
-	log.Debugf("getWantConnectRequest from %v ", uid)
+func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) error {
+	log.Debugf("getWantConnectRequest from %v ,type:%v", uid, connectType)
+	//if connectType == rtc.ConnectType_Control {
 	// 1.sub set remote sdp
 	for _, c := range r.clients {
 		log.Debugf("c.id:%v,c.Role:%v", c.Id, c.Role)
@@ -686,6 +413,7 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 		r.Unlock()
 		return nil
 	}
+	//}
 	client := NewClient(uid, r, rtc.Role_Controler)
 	r.clients = append(r.clients, client)
 
@@ -705,39 +433,6 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 		log.Debugf("client data channel messages:%s", msg)
 	})
 
-	// client.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-	// 	log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
-	// 	if dc.Label() == API_CHANNEL {
-	// 		log.Debugf("%v got dc %v", r.uid, dc.Label())
-	// 		r.sub.api = dc
-	// 		// send cmd after open
-	// 		r.sub.api.OnOpen(func() {
-	// 			log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
-	// 			r.sub.api.SendText("wuyaxiong")
-	// 			if len(r.apiQueue) > 0 {
-	// 				for _, cmd := range r.apiQueue {
-	// 					log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
-	// 					marshalled, err := json.Marshal(cmd)
-	// 					if err != nil {
-	// 						continue
-	// 					}
-	// 					err = r.sub.api.Send(marshalled)
-	// 					if err != nil {
-	// 						log.Errorf("id=%v err=%v", r.uid, err)
-	// 					}
-	// 					time.Sleep(time.Millisecond * 10)
-	// 				}
-	// 				r.apiQueue = []Call{}
-	// 			}
-	// 		})
-	// 		return
-	// 	}
-	// log.Debugf("%v got dc %v", r.uid, dc.Label())
-	// if r.OnDataChannel != nil {
-	// 	r.OnDataChannel(dc)
-	// }
-	//})
-
 	offer, err := client.pc.CreateOffer(nil)
 	//log.Infof("offer: %v", offer)
 	if err != nil {
@@ -750,19 +445,6 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 		log.Errorf("id=%v err=%v", r.uid, err)
 	}
 
-	//3. send offer to sfu
-	// err = r.SendOffer(offer)
-	// if err != nil {
-	// 	log.Errorf("id=%v err=%v", r.uid, err)
-	// }
-
-	// err := client.pc.SetRemoteDescription(sdp)
-	// if err != nil {
-	// 	log.Errorf("uid=%v Negotiate client.pc.SetRemoteDescription err=%v", uid, err)
-	// 	return err
-	// }
-
-	// 2. safe to send candiate to sfu after join ok
 	if len(client.SendCandidates) > 0 {
 		for _, cand := range client.SendCandidates {
 			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
@@ -779,30 +461,6 @@ func (r *RTC) getWantConnectRequest(uid string) error {
 		}
 		client.RecvCandidates = []webrtc.ICECandidateInit{}
 	}
-
-	// if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
-	// 	log.Errorf("AddTrack error: %v", err)
-	// }
-	// if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
-	// 	log.Errorf("AddTrack error: %v", err)
-	// }
-
-	// // 4. create answer after add ice candidate
-	// //option := &webrtc.AnswerOptions{}
-	// answer, err := client.pc.CreateAnswer(nil)
-	// if err != nil {
-	// 	log.Errorf("id=%v err=%v", r.uid, err)
-	// 	return err
-	// }
-
-	// // 5. set local sdp(answer)
-	// err = client.pc.SetLocalDescription(answer)
-	// if err != nil {
-	// 	log.Errorf("id=%v err=%v", r.uid, err)
-	// 	return err
-	// }
-
-	// 6. send answer to sfu
 
 	err = r.SendWantConnectReply(offer, uid)
 	if err != nil {
@@ -1135,7 +793,7 @@ func (r *RTC) onSingalHandle() error {
 			// 		Type: webrtc.SDPTypeOffer,
 			// 	}
 			//log.Infof("wantConnect from [%v] ", payload.WantConnectRequest.From)
-			err := r.getWantConnectRequest(payload.WantConnectRequest.From)
+			err := r.getWantConnectRequest(payload.WantConnectRequest.From, payload.WantConnectRequest.ConnectType)
 			if err != nil {
 				log.Errorf("error: %v", err)
 			}
@@ -1415,13 +1073,6 @@ func (r *RTC) Subscribe(trackInfos []*Subscription) error {
 		}
 	})
 
-	// r.sub.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-	// 	log.Infof("ICEConnectionStateDisconnected 1  %v", state)
-	// 	if state >= webrtc.ICEConnectionStateDisconnected {
-	// 		log.Infof("ICEConnectionStateDisconnected %v", state)
-
-	// 	}
-	// })
 	return err
 }
 func saveToDisk(i media.Writer, track *webrtc.TrackRemote) {
@@ -1460,95 +1111,6 @@ func (r *RTC) RegisterNewVideoSource(uid, name string, sourceType rtc.SourceType
 			},
 		},
 	)
-
-	// r.pub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-	// 	log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
-
-	// 	// user define
-	// 	// if r.OnTrack != nil {
-	// 	// 	r.OnTrack(track, receiver)
-	// 	// } else {
-	// 	// 	//for read and calc
-	// 	// 	b := make([]byte, 1500)
-	// 	// 	for {
-	// 	// 		select {
-	// 	// 		case <-r.notify:
-	// 	// 			return
-	// 	// 		default:
-	// 	// 			n, _, err := track.Read(b)
-	// 	// 			if err != nil {
-	// 	// 				if err == io.EOF {
-	// 	// 					log.Errorf("id=%v track.ReadRTP err=%v", r.uid, err)
-	// 	// 					return
-	// 	// 				}
-	// 	// 				log.Errorf("id=%v Error reading track rtp %s", r.uid, err)
-	// 	// 				continue
-	// 	// 			}
-	// 	// 			r.recvByte += n
-	// 	// 		}
-	// 	// 	}
-	// 	// }
-
-	// })
-
-	// r.sub.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-	// 	log.Infof("[S=>C] got track streamId=%v kind=%v ssrc=%v ", track.StreamID(), track.Kind(), track.SSRC())
-	// 	if r.OnTrack != nil {
-	// 		r.OnTrack(track, receiver)
-	// 	}
-	// 	/*
-	// 		codec := track.Codec()
-	// 		if codec.MimeType == "audio/opus" {
-	// 			fmt.Println("Got Opus track, saving to disk as output.ogg,clockRate:%v,channels:%v", codec.ClockRate, codec.Channels)
-	// 			i, oggNewErr := oggwriter.New("output.ogg", codec.ClockRate, codec.Channels)
-	// 			if oggNewErr != nil {
-	// 				panic(oggNewErr)
-	// 			}
-	// 			saveToDisk(i, track)
-	// 		} else if codec.MimeType == "video/VP8" {
-	// 			fmt.Println("Got VP8 track, saving to disk as output.ivf")
-	// 			i, ivfNewErr := ivfwriter.New("output.ivf")
-	// 			if ivfNewErr != nil {
-	// 				panic(ivfNewErr)
-	// 			}
-	// 			saveToDisk(i, track)
-	// 		}
-	// 	*/
-
-	// })
-
-	// r.sub.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-	// 	log.Debugf("[S=>C] id=%v [r.sub.pc.OnDataChannel] got dc %v", r.uid, dc.Label())
-	// 	if dc.Label() == API_CHANNEL {
-	// 		log.Debugf("%v got dc %v", r.uid, dc.Label())
-	// 		r.sub.api = dc
-	// 		// send cmd after open
-	// 		r.sub.api.OnOpen(func() {
-	// 			log.Debugf("r.sub.api.OnOpen,state:%v,%v dc %v", r.sub.api.ReadyState(), r.uid, dc.Label())
-	// 			r.sub.api.SendText("wuyaxiong")
-	// 			if len(r.apiQueue) > 0 {
-	// 				for _, cmd := range r.apiQueue {
-	// 					log.Debugf("%v r.sub.api.OnOpen send cmd=%v", r.uid, cmd)
-	// 					marshalled, err := json.Marshal(cmd)
-	// 					if err != nil {
-	// 						continue
-	// 					}
-	// 					err = r.sub.api.Send(marshalled)
-	// 					if err != nil {
-	// 						log.Errorf("id=%v err=%v", r.uid, err)
-	// 					}
-	// 					time.Sleep(time.Millisecond * 10)
-	// 				}
-	// 				r.apiQueue = []Call{}
-	// 			}
-	// 		})
-	// 		return
-	// 	}
-	// 	log.Debugf("%v got dc %v", r.uid, dc.Label())
-	// 	if r.OnDataChannel != nil {
-	// 		r.OnDataChannel(dc)
-	// 	}
-	// })
 	return err
 }
 

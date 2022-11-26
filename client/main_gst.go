@@ -97,7 +97,6 @@ func main() {
 
 	// }
 	rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
-
 		log.Infof("rtc.OnDatachannel:%v", dc.Label())
 		dc.OnOpen(func() {
 			log.Infof("%v,dc.onopen,dc.ReadyState:%v", dc.Label(), dc.ReadyState())
