@@ -19,20 +19,22 @@ type Client struct {
 	StartViewTime    time.Time
 	ControlTimer     *time.Timer
 	//role           Target
-	Role                       rtc.Role
+	//Role                       rtc.Role
+	ConnectType                rtc.ConnectType
 	SendCandidates             []*webrtc.ICECandidate
 	RecvCandidates             []webrtc.ICECandidateInit
 	config                     *RTCConfig
 	OnIceConnectionStateChange func(webrtc.ICEConnectionState, *webrtc.PeerConnection)
+	DataChannelEable           bool
 }
 
 // NewTransport create a transport
-func NewClient(uid string, rtc *RTC, role rtc.Role) *Client {
+func NewClient(uid string, rtc *RTC, connectType rtc.ConnectType) *Client {
 	c := &Client{
-		Id:     uid,
-		config: &DefaultConfig,
-		rtc:    rtc,
-		Role:   role,
+		Id:          uid,
+		config:      &DefaultConfig,
+		rtc:         rtc,
+		ConnectType: connectType,
 	}
 
 	c.SendCandidates = []*webrtc.ICECandidate{}

@@ -37,6 +37,7 @@ type udpConn struct {
 type Config struct {
 	MaxTimeControl int
 	MaxTimeView    int
+	MaxViewer      int
 	LogLevel       int8
 	Address        string
 }
@@ -74,6 +75,7 @@ func main() {
 	rtc, err := sdk.NewRTC(connector)
 	rtc.MaxTimeControl = config.MaxTimeControl
 	rtc.MaxTimeView = config.MaxTimeView
+	rtc.MaxViewer = config.MaxViewer
 	if err != nil {
 		panic(err)
 	}

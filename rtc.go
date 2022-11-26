@@ -139,6 +139,7 @@ type RTC struct {
 	connected      bool
 	MaxTimeControl int
 	MaxTimeView    int
+	MaxViewer      int
 
 	config *RTCConfig
 
@@ -146,7 +147,8 @@ type RTC struct {
 	pub     *Transport
 	sub     *Transport
 	clients []*Client
-
+	//controlClient *Client
+	//viewClients map[string]*Client
 	//export to user
 	OnTrack       func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnDataChannel func(*webrtc.DataChannel)
@@ -371,98 +373,6 @@ func (r *RTC) negotiate(sdp webrtc.SessionDescription) error {
 
 	// 6. send answer to sfu
 	err = r.SendAnswer(answer)
-	if err != nil {
-		log.Errorf("id=%v err=%v", r.uid, err)
-		return err
-	}
-	return err
-}
-
-func (r *RTC) refuseWantConnect(uid string, connectType rtc.ConnectType) error {
-
-}
-
-// func (r *RTC) getWantConnectRequest(uid string, sdp webrtc.SessionDescription) error {
-func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) error {
-	log.Debugf("getWantConnectRequest from %v ,type:%v", uid, connectType)
-	//if connectType == rtc.ConnectType_Control {
-	// 1.sub set remote sdp
-	for _, c := range r.clients {
-		log.Debugf("c.id:%v,c.Role:%v", c.Id, c.Role)
-		r.Lock()
-		//如果有一个client的Role是controler，就回应忙，并附带时间信息
-		if c.Role == rtc.Role_Controler {
-			err := r.signaller.Send(
-				&rtc.Request{
-					Payload: &rtc.Request_WantConnectReply{
-						WantConnectReply: &rtc.WantConnectReply{
-							To:           uid,
-							Success:      true,
-							IdleOrNot:    false,
-							RestTimeSecs: 100,
-							NumOfWaiting: 1,
-						},
-					},
-				},
-			)
-			if err != nil {
-				log.Errorf("[%v] err=%v", r.uid, err)
-				return err
-			}
-		}
-		r.Unlock()
-		return nil
-	}
-	//}
-	client := NewClient(uid, r, rtc.Role_Controler)
-	r.clients = append(r.clients, client)
-
-	if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
-		log.Errorf("AddTrack error: %v", err)
-	}
-	if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
-		log.Errorf("AddTrack error: %v", err)
-	}
-
-	client.dataChannel, _ = client.pc.CreateDataChannel("control", &webrtc.DataChannelInit{})
-	client.dataChannel.OnOpen(func() {
-		log.Debugf("client data channel opened")
-		client.dataChannel.SendText("wuyaxiong nb")
-	})
-	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Debugf("client data channel messages:%s", msg)
-	})
-
-	offer, err := client.pc.CreateOffer(nil)
-	//log.Infof("offer: %v", offer)
-	if err != nil {
-		log.Errorf("id=%v err=%v", r.uid, err)
-	}
-
-	// 2. pub set local sdp(offer)
-	err = client.pc.SetLocalDescription(offer)
-	if err != nil {
-		log.Errorf("id=%v err=%v", r.uid, err)
-	}
-
-	if len(client.SendCandidates) > 0 {
-		for _, cand := range client.SendCandidates {
-			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
-			r.SendTrickle2(cand, uid)
-		}
-		client.SendCandidates = []*webrtc.ICECandidate{}
-	}
-
-	// 3. safe to add candidate after SetRemoteDescription
-	if len(client.RecvCandidates) > 0 {
-		for _, candidate := range client.RecvCandidates {
-			log.Debugf("uid=%v r.sub.pc.AddICECandidate candidate=%v", uid, candidate)
-			_ = client.pc.AddICECandidate(candidate)
-		}
-		client.RecvCandidates = []webrtc.ICECandidateInit{}
-	}
-
-	err = r.SendWantConnectReply(offer, uid)
 	if err != nil {
 		log.Errorf("id=%v err=%v", r.uid, err)
 		return err
@@ -706,142 +616,6 @@ func (r *RTC) onSingalHandleOnce() {
 			r.OnError(err)
 		}
 	})
-}
-
-func (r *RTC) onSingalHandle() error {
-	for {
-		//only one goroutine for recving from stream, no need to lock
-		stream, err := r.signaller.Recv()
-		if err != nil {
-			if err == io.EOF {
-				log.Infof("[%v] WebRTC Transport Closed", r.uid)
-				if err := r.signaller.CloseSend(); err != nil {
-					log.Errorf("[%v] error sending close: %s", r.uid, err)
-				}
-				return err
-			}
-
-			errStatus, _ := status.FromError(err)
-			if errStatus.Code() == codes.Canceled {
-				if err := r.signaller.CloseSend(); err != nil {
-					log.Errorf("[%v] error sending close: %s", r.uid, err)
-				}
-				return err
-			}
-
-			log.Errorf("[%v] Error receiving RTC response: %v", r.uid, err)
-			if r.OnError != nil {
-				r.OnError(err)
-			}
-			return err
-		}
-
-		switch payload := stream.Payload.(type) {
-		case *rtc.Reply_Register:
-			//处理RegisterReply的结果，如重名等
-		//case *rtc.Request_Join:
-		//网页或APP的Request_join可直接发到这里来
-		case *rtc.Reply_Join:
-			success := payload.Join.Success
-			err := errors.New(payload.Join.Error.String())
-
-			if !success {
-				log.Errorf("[%v] [join] failed error: %v", r.uid, err)
-				return err
-			}
-			log.Infof("[%v] [join] success", r.uid)
-			log.Infof("payload.Reply.Description=%v", payload.Join.Description)
-			sdp := webrtc.SessionDescription{
-				Type: webrtc.SDPTypeAnswer,
-				SDP:  payload.Join.Description.Sdp,
-			}
-
-			if err = r.setRemoteSDP(sdp); err != nil {
-				log.Errorf("[%v] [join] error %s", r.uid, err)
-				return err
-			}
-		case *rtc.Reply_Description:
-			var sdpType webrtc.SDPType
-			if payload.Description.Type == "offer" {
-				sdpType = webrtc.SDPTypeOffer
-			} else {
-				sdpType = webrtc.SDPTypeAnswer
-			}
-			sdp := webrtc.SessionDescription{
-				SDP:  payload.Description.Sdp,
-				Type: sdpType,
-			}
-			if sdp.Type == webrtc.SDPTypeOffer {
-				log.Infof("[%v] [description] got offer call s.OnNegotiate sdp=%+v", r.uid, sdp)
-				err := r.negotiate(sdp)
-				if err != nil {
-					log.Errorf("error: %v", err)
-				}
-			} else if sdp.Type == webrtc.SDPTypeAnswer {
-				log.Infof("[%v] [description] got answer call sdp=%+v", r.uid, sdp)
-				//err = r.setRemoteSDP(sdp)
-				err = r.setClientRemoteSDP(sdp, payload.Description.From)
-				if err != nil {
-					log.Errorf("[%v] [description] setRemoteSDP err=%s", r.uid, err)
-				}
-			}
-		case *rtc.Reply_WantConnectRequest:
-			log.Infof("rtc.Reply_WantConnect :%v,type:%v", payload.WantConnectRequest, payload.WantConnectRequest.ConnectType)
-			// if payload.WantConnect.SdpType == "offer" {
-			// 	sdp := webrtc.SessionDescription{
-			// 		SDP:  payload.WantConnect.Sdp,
-			// 		Type: webrtc.SDPTypeOffer,
-			// 	}
-			//log.Infof("wantConnect from [%v] ", payload.WantConnectRequest.From)
-			err := r.getWantConnectRequest(payload.WantConnectRequest.From, payload.WantConnectRequest.ConnectType)
-			if err != nil {
-				log.Errorf("error: %v", err)
-			}
-			//}
-
-		case *rtc.Reply_Trickle:
-			var candidate webrtc.ICECandidateInit
-			_ = json.Unmarshal([]byte(payload.Trickle.Init), &candidate)
-			log.Infof("[%v] [trickle] from=%v to=%v candidate=%v", r.uid, payload.Trickle.From, payload.Trickle.To, candidate)
-			r.receiveTrickle2(candidate, payload.Trickle.From)
-		case *rtc.Reply_TrackEvent:
-			if r.OnTrackEvent == nil {
-				log.Errorf("s.OnTrackEvent == nil")
-				continue
-			}
-			var TrackInfos []*TrackInfo
-			for _, v := range payload.TrackEvent.Tracks {
-				TrackInfos = append(TrackInfos, &TrackInfo{
-					Id:        v.Id,
-					Kind:      v.Kind,
-					Muted:     v.Muted,
-					Type:      MediaType(v.Type),
-					StreamId:  v.StreamId,
-					Label:     v.Label,
-					Width:     v.Width,
-					Height:    v.Height,
-					FrameRate: v.FrameRate,
-					Layer:     v.Layer,
-				})
-			}
-			trackEvent := TrackEvent{
-				State:  TrackEvent_State(payload.TrackEvent.State),
-				Uid:    payload.TrackEvent.Uid,
-				Tracks: TrackInfos,
-			}
-
-			log.Infof("s.OnTrackEvent trackEvent=%+v", trackEvent)
-			r.OnTrackEvent(trackEvent)
-		case *rtc.Reply_Subscription:
-			if !payload.Subscription.Success {
-				log.Errorf("suscription error: %v", payload.Subscription.Error)
-			}
-		case *rtc.Reply_Error:
-			log.Errorf("Request error: %v", payload.Error)
-		default:
-			log.Errorf("Unknown RTC type!!!!%v", payload)
-		}
-	}
 }
 
 func (r *RTC) SendJoin(sid string, uid string, offer webrtc.SessionDescription, config map[string]string) error {
@@ -1188,4 +962,251 @@ func (r *RTC) Close() {
 		r.sub.pc.Close()
 	}
 	r.cancel()
+}
+
+func (r *RTC) onSingalHandle() error {
+	for {
+		//only one goroutine for recving from stream, no need to lock
+		stream, err := r.signaller.Recv()
+		if err != nil {
+			if err == io.EOF {
+				log.Infof("[%v] WebRTC Transport Closed", r.uid)
+				if err := r.signaller.CloseSend(); err != nil {
+					log.Errorf("[%v] error sending close: %s", r.uid, err)
+				}
+				return err
+			}
+
+			errStatus, _ := status.FromError(err)
+			if errStatus.Code() == codes.Canceled {
+				if err := r.signaller.CloseSend(); err != nil {
+					log.Errorf("[%v] error sending close: %s", r.uid, err)
+				}
+				return err
+			}
+
+			log.Errorf("[%v] Error receiving RTC response: %v", r.uid, err)
+			if r.OnError != nil {
+				r.OnError(err)
+			}
+			return err
+		}
+
+		switch payload := stream.Payload.(type) {
+		case *rtc.Reply_Register:
+			//处理RegisterReply的结果，如重名等
+		//case *rtc.Request_Join:
+		//网页或APP的Request_join可直接发到这里来
+		case *rtc.Reply_Join:
+			success := payload.Join.Success
+			err := errors.New(payload.Join.Error.String())
+
+			if !success {
+				log.Errorf("[%v] [join] failed error: %v", r.uid, err)
+				return err
+			}
+			log.Infof("[%v] [join] success", r.uid)
+			log.Infof("payload.Reply.Description=%v", payload.Join.Description)
+			sdp := webrtc.SessionDescription{
+				Type: webrtc.SDPTypeAnswer,
+				SDP:  payload.Join.Description.Sdp,
+			}
+
+			if err = r.setRemoteSDP(sdp); err != nil {
+				log.Errorf("[%v] [join] error %s", r.uid, err)
+				return err
+			}
+		case *rtc.Reply_Description:
+			var sdpType webrtc.SDPType
+			if payload.Description.Type == "offer" {
+				sdpType = webrtc.SDPTypeOffer
+			} else {
+				sdpType = webrtc.SDPTypeAnswer
+			}
+			sdp := webrtc.SessionDescription{
+				SDP:  payload.Description.Sdp,
+				Type: sdpType,
+			}
+			if sdp.Type == webrtc.SDPTypeOffer {
+				log.Infof("[%v] [description] got offer call s.OnNegotiate sdp=%+v", r.uid, sdp)
+				err := r.negotiate(sdp)
+				if err != nil {
+					log.Errorf("error: %v", err)
+				}
+			} else if sdp.Type == webrtc.SDPTypeAnswer {
+				log.Infof("[%v] [description] got answer call sdp=%+v", r.uid, sdp)
+				//err = r.setRemoteSDP(sdp)
+				err = r.setClientRemoteSDP(sdp, payload.Description.From)
+				if err != nil {
+					log.Errorf("[%v] [description] setRemoteSDP err=%s", r.uid, err)
+				}
+			}
+		case *rtc.Reply_WantConnectRequest:
+			log.Infof("rtc.Reply_WantConnect :%v,type:%v", payload.WantConnectRequest, payload.WantConnectRequest.ConnectType)
+			// if payload.WantConnect.SdpType == "offer" {
+			// 	sdp := webrtc.SessionDescription{
+			// 		SDP:  payload.WantConnect.Sdp,
+			// 		Type: webrtc.SDPTypeOffer,
+			// 	}
+			//log.Infof("wantConnect from [%v] ", payload.WantConnectRequest.From)
+			err := r.getWantConnectRequest(payload.WantConnectRequest.From, payload.WantConnectRequest.ConnectType)
+			if err != nil {
+				log.Errorf("error: %v", err)
+			}
+			//}
+
+		case *rtc.Reply_Trickle:
+			var candidate webrtc.ICECandidateInit
+			_ = json.Unmarshal([]byte(payload.Trickle.Init), &candidate)
+			//log.Infof("[%v] [trickle] from=%v to=%v candidate=%v", r.uid, payload.Trickle.From, payload.Trickle.To, candidate)
+			r.receiveTrickle2(candidate, payload.Trickle.From)
+		case *rtc.Reply_TrackEvent:
+			if r.OnTrackEvent == nil {
+				log.Errorf("s.OnTrackEvent == nil")
+				continue
+			}
+			var TrackInfos []*TrackInfo
+			for _, v := range payload.TrackEvent.Tracks {
+				TrackInfos = append(TrackInfos, &TrackInfo{
+					Id:        v.Id,
+					Kind:      v.Kind,
+					Muted:     v.Muted,
+					Type:      MediaType(v.Type),
+					StreamId:  v.StreamId,
+					Label:     v.Label,
+					Width:     v.Width,
+					Height:    v.Height,
+					FrameRate: v.FrameRate,
+					Layer:     v.Layer,
+				})
+			}
+			trackEvent := TrackEvent{
+				State:  TrackEvent_State(payload.TrackEvent.State),
+				Uid:    payload.TrackEvent.Uid,
+				Tracks: TrackInfos,
+			}
+
+			log.Infof("s.OnTrackEvent trackEvent=%+v", trackEvent)
+			r.OnTrackEvent(trackEvent)
+		case *rtc.Reply_Subscription:
+			if !payload.Subscription.Success {
+				log.Errorf("suscription error: %v", payload.Subscription.Error)
+			}
+		case *rtc.Reply_Error:
+			log.Errorf("Request error: %v", payload.Error)
+		default:
+			log.Errorf("Unknown RTC type!!!!%v", payload)
+		}
+	}
+}
+
+func (r *RTC) refuseWantConnect(refuse *rtc.WantConnectReply) error {
+	r.Lock()
+	//如果有一个client的Role是controler，就回应忙，并附带时间信息
+	err := r.signaller.Send(
+		&rtc.Request{
+			Payload: &rtc.Request_WantConnectReply{
+				WantConnectReply: refuse,
+			},
+		},
+	)
+	if err != nil {
+		log.Errorf("[%v] err=%v", r.uid, err)
+		return err
+	}
+	r.Unlock()
+	return nil
+
+}
+
+// func (r *RTC) getWantConnectRequest(uid string, sdp webrtc.SessionDescription) error {
+func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) error {
+	log.Debugf("getWantConnectRequest from %v ,type:%v", uid, connectType)
+	/*如果有一个client的Role是controler，就回应忙，并附带时间信息
+	  如果Role是view,需要统计个数，超过的回应忙
+	*/
+	var client *Client
+	if connectType == rtc.ConnectType_Control {
+		//如果有一个client的Role是controler，就回应忙，并附带时间信息
+		for _, c := range r.clients {
+			if c.ConnectType == rtc.ConnectType_Control {
+				return r.refuseWantConnect(&rtc.WantConnectReply{
+					To:           uid,
+					Success:      true,
+					IdleOrNot:    false,
+					RestTimeSecs: 100,
+					NumOfWaiting: 1,
+				})
+			}
+		}
+		client = NewClient(uid, r, rtc.ConnectType_Control)
+		client.DataChannelEable = false
+		r.clients = append(r.clients, client)
+	} else if connectType == rtc.ConnectType_View {
+		//如果Role是view,需要统计个数，超过的回应忙
+		if len(r.clients) >= r.MaxViewer { //这里没有考虑control个数，一般为1个，即有1个的误差
+			return r.refuseWantConnect(&rtc.WantConnectReply{
+				To:           uid,
+				Success:      true,
+				IdleOrNot:    false,
+				RestTimeSecs: 100,
+				NumOfWaiting: 1,
+			})
+		}
+		client = NewClient(uid, r, rtc.ConnectType_View)
+		client.DataChannelEable = false
+		r.clients = append(r.clients, client)
+	}
+
+	if _, err := client.pc.AddTrack(r.VedioTrack); err != nil {
+		log.Errorf("AddTrack error: %v", err)
+	}
+	if _, err := client.pc.AddTrack(r.AudioTrack); err != nil {
+		log.Errorf("AddTrack error: %v", err)
+	}
+
+	client.dataChannel, _ = client.pc.CreateDataChannel("control", &webrtc.DataChannelInit{})
+	client.dataChannel.OnOpen(func() {
+		log.Debugf("client data channel opened")
+		client.dataChannel.SendText("wuyaxiong nb")
+	})
+	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		log.Debugf("client data channel messages:%s", msg)
+	})
+
+	offer, err := client.pc.CreateOffer(nil)
+	//log.Infof("offer: %v", offer)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+	}
+
+	// 2. pub set local sdp(offer)
+	err = client.pc.SetLocalDescription(offer)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+	}
+
+	if len(client.SendCandidates) > 0 {
+		for _, cand := range client.SendCandidates {
+			log.Debugf("[C=>S] id=%v send sub.SendCandidates r.uid, r.rtc.trickle cand=%v", uid, cand)
+			r.SendTrickle2(cand, uid)
+		}
+		client.SendCandidates = []*webrtc.ICECandidate{}
+	}
+
+	// 3. safe to add candidate after SetRemoteDescription
+	if len(client.RecvCandidates) > 0 {
+		for _, candidate := range client.RecvCandidates {
+			log.Debugf("uid=%v r.sub.pc.AddICECandidate candidate=%v", uid, candidate)
+			_ = client.pc.AddICECandidate(candidate)
+		}
+		client.RecvCandidates = []webrtc.ICECandidateInit{}
+	}
+
+	err = r.SendWantConnectReply(offer, uid)
+	if err != nil {
+		log.Errorf("id=%v err=%v", r.uid, err)
+		return err
+	}
+	return err
 }
