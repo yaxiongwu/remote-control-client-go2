@@ -139,7 +139,7 @@ type RTC struct {
 	connected      bool
 	MaxTimeControl int
 	MaxTimeView    int
-	MaxViewer      int
+	MaxClientsNum  int
 
 	config *RTCConfig
 
@@ -1144,13 +1144,18 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 		r.clients = append(r.clients, client)
 	} else if connectType == rtc.ConnectType_View {
 		//如果Role是view,需要统计个数，超过的回应忙
-		if len(r.clients) >= r.MaxViewer { //这里没有考虑control个数，一般为1个，即有1个的误差
+		log.Debugf("len(r.clients):%d", len(r.clients))
+		for _, c := range r.clients {
+			log.Debugf("client: %v", c.Id)
+		}
+		num := len(r.clients)
+		if num >= r.MaxClientsNum { //这里没有考虑control个数，一般为1个，即有1个的误差
 			return r.refuseWantConnect(&rtc.WantConnectReply{
 				To:           uid,
 				Success:      true,
 				IdleOrNot:    false,
 				RestTimeSecs: 100,
-				NumOfWaiting: 1,
+				NumOfWaiting: uint32(num),
 			})
 		}
 		client = NewClient(uid, r, rtc.ConnectType_View)
@@ -1171,7 +1176,9 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 		client.dataChannel.SendText("wuyaxiong nb")
 	})
 	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Debugf("client data channel messages:%s", msg)
+		if client.DataChannelEable == true {
+			log.Debugf("client data channel messages:%s", msg)
+		}
 	})
 
 	offer, err := client.pc.CreateOffer(nil)

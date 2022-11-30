@@ -6,7 +6,7 @@ import (
 	"github.com/pion/ice/v2"
 	log "github.com/pion/ion-log"
 	"github.com/pion/webrtc/v3"
-	"github.com/yaxiongwu/remote-control-client-go2/pkg/proto/rtc"
+	rtclib "github.com/yaxiongwu/remote-control-client-go2/pkg/proto/rtc"
 )
 
 // Client is pub/sub transport
@@ -20,7 +20,7 @@ type Client struct {
 	ControlTimer     *time.Timer
 	//role           Target
 	//Role                       rtc.Role
-	ConnectType                rtc.ConnectType
+	ConnectType                rtclib.ConnectType
 	SendCandidates             []*webrtc.ICECandidate
 	RecvCandidates             []webrtc.ICECandidateInit
 	config                     *RTCConfig
@@ -29,7 +29,7 @@ type Client struct {
 }
 
 // NewTransport create a transport
-func NewClient(uid string, rtc *RTC, connectType rtc.ConnectType) *Client {
+func NewClient(uid string, rtc *RTC, connectType rtclib.ConnectType) *Client {
 	c := &Client{
 		Id:          uid,
 		config:      &DefaultConfig,
@@ -108,7 +108,11 @@ func NewClient(uid string, rtc *RTC, connectType rtc.ConnectType) *Client {
 		if state == webrtc.ICEConnectionStateConnected {
 			c.StartControlTime = time.Now()
 			c.StartViewTime = time.Now()
-			c.ControlTimer = time.NewTimer(time.Duration(rtc.MaxTimeControl) * time.Second)
+			if c.ConnectType == rtclib.ConnectType_Control {
+				c.ControlTimer = time.NewTimer(time.Duration(rtc.MaxTimeControl) * time.Second)
+			} else if c.ConnectType == rtclib.ConnectType_View {
+				c.ControlTimer = time.NewTimer(time.Duration(rtc.MaxTimeView) * time.Second)
+			}
 			go func() {
 				for {
 					select {
