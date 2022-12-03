@@ -42,7 +42,7 @@ type udpConn struct {
 }
 
 var (
-//log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
+// log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
 )
 
 func main() {
@@ -98,7 +98,13 @@ func main() {
 	err = rtc.RegisterNewVideoSource("ion", "PiVideoSource")
 
 	rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
-		recvData := make(map[string]int)
+		recvData := make(map[string]interface{})
+		/*
+			{"type": 1, "x":2, "y":3}
+			{"type":2,"speed":10}
+			{"s":100}
+			{"d":-10}
+		*/
 		log.Infof("rtc.OnDatachannel:%v", dc.Label())
 		dc.OnOpen(func() {
 			log.Infof("%v,dc.onopen,dc.ReadyState:%v", dc.Label(), dc.ReadyState())

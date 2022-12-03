@@ -1140,7 +1140,7 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 			}
 		}
 		client = NewClient(uid, r, rtc.ConnectType_Control)
-		client.DataChannelEable = false
+		client.DataChannelEable = true
 		r.clients = append(r.clients, client)
 	} else if connectType == rtc.ConnectType_View {
 		//如果Role是view,需要统计个数，超过的回应忙
