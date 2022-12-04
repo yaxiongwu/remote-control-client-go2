@@ -150,11 +150,12 @@ type RTC struct {
 	//controlClient *Client
 	//viewClients map[string]*Client
 	//export to user
-	OnTrack       func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnDataChannel func(*webrtc.DataChannel)
-	OnError       func(error)
-	OnTrackEvent  func(event TrackEvent)
-	OnSpeaker     func(event []string)
+	OnTrack              func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	OnDataChannel        func(*webrtc.DataChannel)
+	OnError              func(error)
+	OnTrackEvent         func(event TrackEvent)
+	OnDataChannelMessage func(webrtc.DataChannelMessage)
+	OnSpeaker            func(event []string)
 
 	producer *WebMProducer
 	recvByte int
@@ -1171,14 +1172,26 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 	}
 
 	client.dataChannel, _ = client.pc.CreateDataChannel("control", &webrtc.DataChannelInit{})
+
+	// client.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+
+	// 	if r.OnDataChannel != nil {
+	// 		r.OnDataChannel(dc)
+	// 	}
+	// })
+
 	client.dataChannel.OnOpen(func() {
 		log.Debugf("client data channel opened")
 		client.dataChannel.SendText("wuyaxiong nb")
 	})
 	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if client.DataChannelEable == true {
-			log.Debugf("client data channel messages:%s", msg)
+			//log.Debugf("client data channel messages:%s", msg)
+			if r.OnDataChannelMessage != nil {
+				r.OnDataChannelMessage(msg)
+			}
 		}
+
 	})
 
 	offer, err := client.pc.CreateOffer(nil)

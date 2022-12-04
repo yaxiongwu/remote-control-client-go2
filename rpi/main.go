@@ -5,17 +5,13 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net"
 
-	log "github.com/pion/ion-log"
-	"github.com/pion/rtp"
-
+	"github.com/hajimehoshi/oto/v2"
 	sdk "github.com/yaxiongwu/remote-control-client-go2"
-	//ilog "github.com/pion/ion-log"
 
-	"github.com/pion/webrtc/v3"
+	//ilog "github.com/pion/ion-log"
 
 	// Note: If you don't have a camera or microphone or your adapters are not supported,
 	//       you can always swap your adapters with our dummy adapters below.
@@ -27,12 +23,14 @@ import (
 
 	//"github.com/pion/mediadevices/pkg/codec/mmal"
 	//"github.com/pion/mediadevices/pkg/codec/vpx"
-	"github.com/hajimehoshi/oto/v2"
+	"github.com/BurntSushi/toml"
+	log "github.com/pion/ion-log"
 	_ "github.com/pion/mediadevices/pkg/driver/camera"     // This is required to register camera adapter
 	_ "github.com/pion/mediadevices/pkg/driver/microphone" // This is required to register microphone adapter
-	gst "github.com/yaxiongwu/remote-control-client-go2/pkg/gstreamer-src"
+	"github.com/pion/rtp"
+	"github.com/pion/webrtc/v3"
 	opusdecoder "github.com/yaxiongwu/remote-control-client-go2/pkg/opus/decoder"
-	"github.com/yaxiongwu/remote-control-client-go2/pkg/rtmpudp"
+	rtcproto "github.com/yaxiongwu/remote-control-client-go2/pkg/proto/rtc"
 )
 
 type udpConn struct {
@@ -40,70 +38,81 @@ type udpConn struct {
 	port        int
 	payloadType uint8
 }
+type Config struct {
+	MaxTimeControl int
+	MaxTimeView    int
+	MaxClientsNum  int
+	LogLevel       int8
+	Address        string
+}
 
 var (
-// log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
+	// log = ilog.NewLoggerWithFields(ilog.DebugLevel, "main", nil)
+	config Config
 )
 
 func main() {
 
-	var session, addr string
-	//flag.StringVar(&addr, "addr", "192.168.1.199:5551", "ion-sfu grpc addr")
-	flag.StringVar(&addr, "addr", "120.78.200.246:5551", "ion-sfu grpc addr")
-	flag.StringVar(&session, "session", "ion", "join session name")
-	audioSrc := " autoaudiosrc ! audio/x-raw"
-	//omxh264enc可能需要设置长宽为32倍整数，否则会出现"green band"，一道偏色栏
-	videoSrc := " autovideosrc ! video/x-raw, width=640, height=480 ! videoconvert ! queue"
-	//videoSrc := flag.String("video-src", "videotestsrc", "GStreamer video src")
-	flag.Parse()
-	// Create a video track
-	//videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/vp8"}, "video", "pion2")
-	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/H264"}, "video", "pion2")
-	if err != nil {
-		panic(err)
-	}
-	// Create a audio track
-	audioTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "audio/opus"}, "audio", "pion1")
-	if err != nil {
-		panic(err)
+	configFilePath := "./config.toml"
+	if _, err := toml.DecodeFile(configFilePath, &config); err != nil {
+		fmt.Println("load config file error!", err)
+		return
 	}
 
-	rtmpudp := rtmpudp.Init("5000")
-	//gst.CreatePipeline("vp8", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc).Start()
-	gst.CreatePipeline("h264_omx", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc, rtmpudp.GetConn()).Start()
-	gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{audioTrack}, audioSrc, rtmpudp.GetConn()).Start()
-
-	//在树莓派上控制时开启
+	// rtmpudp := rtmpudp.Init("5000")
+	// //在树莓派上控制时开启
+	// gst.CreatePipeline("h264_omx", []*webrtc.TrackLocalStaticSample{videoTrack}, videoSrc, rtmpudp.GetConn()).Start()
+	// gst.CreatePipeline("opus", []*webrtc.TrackLocalStaticSample{audioTrack}, audioSrc, rtmpudp.GetConn()).Start()
 
 	speed := make(chan int)
 	pi := sdk.Init(26, 19, 13, 6)
 	pi.SpeedControl(speed)
 
-	connector := sdk.NewConnector(addr)
+	connector := sdk.NewConnector(config.Address)
 	rtc, err := sdk.NewRTC(connector)
+	rtc.MaxTimeControl = config.MaxTimeControl
+	rtc.MaxTimeView = config.MaxTimeView
+	rtc.MaxClientsNum = config.MaxClientsNum
 	if err != nil {
 		panic(err)
 	}
 
-	rtc.OnPubIceConnectionStateChange = func(state webrtc.ICEConnectionState) {
-		log.Infof("Pub Connection state changed: %s", state)
-		if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed {
-			log.Infof("rtc.GetPubTransport().GetPeerConnection().Close()")
-			rtc.ReStart()
+	err = rtc.RegisterNewVideoSource("PiVideoSource", "远程视频控制小车", rtcproto.SourceType_Car)
+	rtc.OnDataChannelMessage = func(msg webrtc.DataChannelMessage) {
+		log.Infof("recr msg:%s", msg)
+		recvData := make(map[string]int)
+		/*
+		 速度：100 	{"s":100}
+		 方向：-10  {"d":-10}
+		*/
+		err := json.Unmarshal(msg.Data, &recvData)
+		if err != nil {
+			log.Errorf("Unmarshal:err %v", err)
+			return
+		}
+		/*使用树莓派时开启*/
+		_, ok_d := recvData["d"]
+		if ok_d {
+			pi.DirectionControl(recvData["d"])
+		}
+		_, ok_s := recvData["s"]
+		if ok_s {
+			speed <- recvData["s"]
 		}
 	}
 
-	log.Infof("rtc.GetSubTransport():%v,rtc.GetSubTransport().GetPeerConnection():%v", rtc.GetSubTransport(), rtc.GetSubTransport().GetPeerConnection())
-
-	err = rtc.RegisterNewVideoSource("ion", "PiVideoSource")
-
 	rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
-		recvData := make(map[string]interface{})
+		log.Infof("rtc.OnDatachannel:%v", dc.Label())
+		dc.OnOpen(func() {
+			log.Infof("%v,dc.onopen,dc.ReadyState:%v", dc.Label(), dc.ReadyState())
+			//	dc.SendText("wuyaxiong nbcl")
+		})
+	}
+	rtc.OnDataChannel = func(dc *webrtc.DataChannel) {
+		recvData := make(map[string]int)
 		/*
-			{"type": 1, "x":2, "y":3}
-			{"type":2,"speed":10}
-			{"s":100}
-			{"d":-10}
+		 速度：100 	{"s":100}
+		 方向：-10  {"d":-10}
 		*/
 		log.Infof("rtc.OnDatachannel:%v", dc.Label())
 		dc.OnOpen(func() {
@@ -113,23 +122,35 @@ func main() {
 
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 			//log.Infof("get msg from:%v,msg:%s", dc.Label(), msg.Data)
+			// recvData["s"] = 0
+			// recvData["d"] = 0
 			err := json.Unmarshal(msg.Data, &recvData)
+			/*格式：
+			  {"s":10}
+			*/
 			if err != nil {
 				log.Errorf("Unmarshal:err %v", err)
 				return
 			}
 			/*使用树莓派时开启*/
-
+			_, ok_d := recvData["d"]
+			if ok_d {
+				pi.DirectionControl(recvData["d"])
+			}
+			_, ok_s := recvData["s"]
+			if ok_s {
+				speed <- recvData["s"]
+			}
 			//if recvData["type"] != nil {
-			switch recvData["type"] {
-			case 1: //方向
-				//每次方向摇杆放开就会回到(0,0)，如果y=0，固定为往前走，这样会导致永远不会往后走
-				pi.DirectionControl(recvData["x"], recvData["y"])
-			case 2: //速度
-				//if(recvData["speed"]!=nil){
-				speed <- recvData["speed"]
-				//}
-			} //switch
+			// switch recvData["type"] {
+			// case 1: //方向
+			// 	//每次方向摇杆放开就会回到(0,0)，如果y=0，固定为往前走，这样会导致永远不会往后走
+			// 	pi.DirectionControl(recvData["x"], recvData["y"])
+			// case 2: //速度
+			// 	//if(recvData["speed"]!=nil){
+			// 	speed <- recvData["speed"]
+			// 	//}
+			// } //switch
 			//} //if
 			//log.Infof("recvData:%v,%v", recvData["t"], recvData["x"])
 		})
@@ -194,27 +215,5 @@ func main() {
 			}
 		}
 	}
-
-	rtc.OnSubIceConnectionStateChange = func(state webrtc.ICEConnectionState) {
-		log.Infof("Sub Connection state changed: %s", state)
-		// if state == webrtc.ICEConnectionStateDisconnected {
-		// 	rtc.GetSubTransport().GetPeerConnection().Close()
-		// 	log.Infof("rtc.GetSubTransport().GetPeerConnection().Close()")
-		// }
-		if state == webrtc.ICEConnectionStateConnected {
-			//var tracks = [...]webrtc.TrackLocal{}
-
-			_, err = rtc.Publish(videoTrack, audioTrack)
-
-			if err != nil {
-				log.Errorf("join err=%v", err)
-				panic(err)
-			}
-		} else if state == webrtc.ICEConnectionStateDisconnected {
-
-			log.Infof("sub ICEConnectionStateDisconnected")
-		}
-	}
-
 	select {}
 }
