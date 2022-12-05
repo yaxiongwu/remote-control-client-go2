@@ -79,7 +79,7 @@ func main() {
 
 	err = rtc.RegisterNewVideoSource("PiVideoSource", "远程视频控制小车", rtcproto.SourceType_Car)
 	rtc.OnDataChannelMessage = func(msg webrtc.DataChannelMessage) {
-		log.Infof("recr msg:%s", msg)
+		//log.Infof("recr msg:%s", msg)
 		recvData := make(map[string]int)
 		/*
 		 速度：100 	{"s":100}
@@ -141,18 +141,6 @@ func main() {
 			if ok_s {
 				speed <- recvData["s"]
 			}
-			//if recvData["type"] != nil {
-			// switch recvData["type"] {
-			// case 1: //方向
-			// 	//每次方向摇杆放开就会回到(0,0)，如果y=0，固定为往前走，这样会导致永远不会往后走
-			// 	pi.DirectionControl(recvData["x"], recvData["y"])
-			// case 2: //速度
-			// 	//if(recvData["speed"]!=nil){
-			// 	speed <- recvData["speed"]
-			// 	//}
-			// } //switch
-			//} //if
-			//log.Infof("recvData:%v,%v", recvData["t"], recvData["x"])
 		})
 	}
 
@@ -209,9 +197,7 @@ func main() {
 				copy(temp, rtpPacket.Payload)
 				//decoder.SetOpusData(rtpPacket.Payload)
 				decoder.Write(temp)
-
 				player.Play()
-
 			}
 		}
 	}

@@ -13,8 +13,7 @@ type PiControl struct {
 	pinNumRunINB       int
 	pinNumDirectionIN1 int
 	pinNumDirectionIN2 int
-	directionX         int
-	directionY         int
+	direction          int
 	speed              int
 }
 
@@ -35,8 +34,7 @@ func Init(pRunINA int, pRunINB int, pDirectIN1 int, pDirectIN2 int) *PiControl {
 		pinNumRunINB:       pRunINB,
 		pinNumDirectionIN1: pDirectIN1,
 		pinNumDirectionIN2: pDirectIN2,
-		directionX:         0,
-		directionY:         0,
+		direction:          0,
 		speed:              0,
 	}
 }
@@ -48,7 +46,7 @@ func (pi *PiControl) Speed(speed int, direction bool, change <-chan int) {
 /*
  * 速度改变时是只需要调整占空比，但是方向的Y改变时，要改变轮子的方向，此时要重新设置轮子的旋转，速度用以前的
  * */
-func (pi *PiControl) DirectionControl(newDirectionX int) error {
+func (pi *PiControl) DirectionControl(newDirection int) error {
 	pinDirectionIN1 := rpio.Pin(pi.pinNumDirectionIN1)
 	pinDirectionIN2 := rpio.Pin(pi.pinNumDirectionIN2)
 	pinDirectionIN1.Output()
@@ -56,31 +54,25 @@ func (pi *PiControl) DirectionControl(newDirectionX int) error {
 	pinDirectionIN1.PullUp()
 	pinDirectionIN2.PullUp()
 
-	pi.directionX = newDirectionX
+	pi.direction = newDirection
 
 	//fmt.Println(" pi.directionX:", pi.directionX)
-	if pi.directionX > 0 { //往左
+	if pi.direction > 0 { //往左
 		pinDirectionIN1.High()
 		pinDirectionIN2.Low()
-		time.Sleep(time.Duration(pi.directionX) * time.Millisecond)
-	} else if pi.directionX < 0 { //往右
+		//time.Sleep(time.Duration(pi.directionX) * time.Millisecond*10)
+	} else if pi.direction < 0 { //往右
 		pinDirectionIN1.Low()
 		pinDirectionIN2.High()
-		time.Sleep(time.Duration(-pi.directionX) * time.Millisecond)
+		//time.Sleep(time.Duration(-pi.directionX) * time.Millisecond*10)
 		//  time.Sleep(50*time.Millisecond)
+	} else {
+		pinDirectionIN1.Low()
+		pinDirectionIN2.Low()
 	}
-	pinDirectionIN1.Low()
-	pinDirectionIN2.Low()
 	return nil
 }
 func (pi *PiControl) SpeedControl(newSpeed <-chan int) error {
-
-	//err := rpio.Open()
-	//if err != nil{
-	//	fmt.Print(err)
-	//	return err
-	//	}
-	//fmt.Println(pi.pinNumRunINA,pi.pinNumRunINB)
 
 	pinRunINA := rpio.Pin(pi.pinNumRunINA)
 	pinRunINB := rpio.Pin(pi.pinNumRunINB)
@@ -90,115 +82,37 @@ func (pi *PiControl) SpeedControl(newSpeed <-chan int) error {
 
 	pinRunINA.PullUp() //
 	pinRunINB.PullUp()
+	var absSpeed int
 
-	fmt.Println("pi.directionY:", pi.directionY)
 	//速度控制
 	go func() {
 		for {
 			select {
 			case s := <-newSpeed:
-				if s < 0 {
-					pi.speed = -s
-					pi.directionY = -1
+				pi.speed = s
+				if pi.speed < 0 {
+					absSpeed = -pi.speed
 				} else {
-					pi.speed = s
-					pi.directionY = 1
+					absSpeed = pi.speed
 				}
-				//pinRunINA.Low()
-				//pinRunINB.Low()
-				fmt.Println("pi.speed=:", pi.speed)
-				//case dy:=<-newDirectionY:
-				// pi.directionY=dy
-				//pinRunINA.Low()
-				//pinRunINB.Low()
-				//fmt.Println("pi.directionY:",pi.directionY)
-				// return
-			case <-time.After(100*time.Millisecond - time.Duration(pi.speed)*time.Millisecond):
-				//正转
-				//fmt.Println("speed time.After pi.directionY:",pi.directionY)
-				//if(pi.directionY == 0){//往前跑
-				// break
-				//}else
-				if pi.directionY >= 0 { //往前跑
+
+				/*
+					这里为了调速，需要用程序形成PWM，一共100ms，前pi.speed*10 ms运行，其余时间停止，周而复始
+				*/
+			case <-time.After(100*time.Millisecond - time.Duration(absSpeed*10)*time.Millisecond):
+				if pi.speed > 0 { //往前跑
 					pinRunINA.High()
 					pinRunINB.Low()
-				} else if pi.directionY < 0 {
+				} else if pi.speed < 0 {
 					pinRunINA.Low()
 					pinRunINB.High()
 				}
-				time.Sleep(time.Duration(pi.speed) * time.Millisecond)
+				time.Sleep(time.Duration(absSpeed*10) * time.Millisecond)
 				//停
 				pinRunINA.Low()
 				pinRunINB.Low()
 			} //select
 		} //for
 	}() //go func()
-
-	/*
-		      go func(){
-			  for{
-				  select{
-					 case dx:=<-newDirectionX:
-					     pi.directionX=dx
-					    fmt.Println(" pi.directionX:", pi.directionX)
-					    if(pi.directionX >0){//往左
-						  pinDirectionIN1.High()
-						  pinDirectionIN2.Low()
-						  //time.Sleep(10*time.Duration(pi.directionX)*time.Millisecond)
-						//  time.Sleep(50*time.Millisecond)
-					    }else if(pi.directionX <0){ //往右
-						  pinDirectionIN1.Low()
-						  pinDirectionIN2.High()
-						  //time.Sleep(10*time.Duration(pi.directionX)*time.Millisecond)
-						//  time.Sleep(50*time.Millisecond)
-						}
-						pinDirectionIN1.Low()
-						pinDirectionIN2.Low()
-			     }//select
-		       }//for
-		     }()//go func()
-	*/
-
-	/*
-		if(newDirectionX !=0 || newDirectionY != 0){
-			pi.directionX = newDirectionX
-			pi.directionY = newDirectionY
-
-			if(pi.directionX < 0) {//左转
-			//左转
-			pinDirectionIN1.High()
-			pinDirectionIN2.Low()
-			time.Sleep(time.Duration(-pi.directionX)*time.Millisecond)
-			//停
-			pinDirectionIN1.Low()
-			pinDirectionIN2.Low()
-			 time.Sleep(time.Duration(15-(-pi.directionX))*time.Millisecond)
-			}else if(pi.directionX > 0){//右转
-			//右转
-				//左转
-			pinDirectionIN1.Low()
-			pinDirectionIN2.High()
-			time.Sleep(time.Duration(-pi.directionX)*time.Millisecond)
-			//停
-			pinDirectionIN1.Low()
-			pinDirectionIN2.Low()
-			time.Sleep(time.Duration(15-(-pi.directionX))*time.Millisecond)
-			}//else if
-		}//if(new
-	*/
-	/*
-		pin.Input()       // Input mode
-		res := pin.Read() // Read state from pin (High / Low)
-		fmt.Print(res)
-
-		pin.Mode(rpio.Output) // Alternative syntax
-		pin.Write(rpio.High)  // Alternative syntax
-		pin.PullUp()
-		pin.PullDown()
-		pin.PullOff()
-
-		pin.Pull(rpio.PullUp)
-		rpio.Close()
-		* */
 	return nil
 }

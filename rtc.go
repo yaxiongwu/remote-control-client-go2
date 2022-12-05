@@ -1182,7 +1182,7 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 
 	client.dataChannel.OnOpen(func() {
 		log.Debugf("client data channel opened")
-		client.dataChannel.SendText("wuyaxiong nb")
+		//client.dataChannel.SendText("wuyaxiong nb")
 	})
 	client.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if client.DataChannelEable == true {
