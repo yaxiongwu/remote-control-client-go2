@@ -35,4 +35,4 @@
 4.在/etc/rc.local文件的
     exit 0前添加：
     sleep 30
-    su - pi -c "bash /home/pi/remote-control-client-go2-0927/rpi/autoRunWebrtc.sh"
+    su - pi -c "bash /home/pi/remote-control-client-go2/rpi/autoRunWebrtc.sh"
