@@ -10,15 +10,17 @@ package engine
 #define PWM0_1 26
 #define PWM1_0 23
 #define PWM1_1 24
-#define car_type_pin 4
+#define CAR_TYPE_PIN 4
 #define MODE PWM_MODE_MS
+#define BLADE_SWITCH 5
 
 //int lastSpeed=0;
 //int lastDirection=0;
 
 int wiringInit(){
   wiringPiSetup();
-  pinMode(car_type_pin,INPUT);
+  pinMode(CAR_TYPE_PIN,INPUT);
+  pinMode(BLADE_SWITCH,OUTPUT);
   pinMode(PWM0_1,OUTPUT);
   pinMode(PWM0_0,PWM_OUTPUT);
 
@@ -30,7 +32,7 @@ int wiringInit(){
   pwmWrite(PWM0_0,0);
   digitalWrite(PWM0_1,0);
   digitalWrite(PWM1_1,0);
-  return digitalRead(car_type_pin);
+  return digitalRead(CAR_TYPE_PIN);
 }
 
  // 两轮差速控制小车的速度控制
@@ -214,6 +216,12 @@ void directionControl1(int lastDirection,int direction){
 	 }//else
 	//lastSpeed=speed;
 }
+
+//刀片开关控制
+void bladeSwitch(int bladeOn){
+	 digitalWrite(BLADE_SWITCH,bladeOn);
+	// printf("blade:%d\n",bladeOn);
+}
 */
 import "C"
 
@@ -252,5 +260,12 @@ func (pi *PiControl) DirectionControl(direction int) error {
 		//	fmt.Printf("dir type: %d\n", pi.carType)
 	}
 	pi.lastDirection = direction
+	return nil
+}
+
+// 刀片开关
+func (pi *PiControl) BladeSwitch(bladeOn int) error {
+	C.bladeSwitch(C.int(bladeOn))
+	//fmt.Printf("blade: %d\n", bladeOn)
 	return nil
 }

@@ -117,6 +117,8 @@ func main() {
 		case "speed":
 			//speed <- int(data)
 			pi.SpeedControl(int(data))
+		case "blade":
+			pi.BladeSwitch(int(data))
 		default:
 		}
 	}

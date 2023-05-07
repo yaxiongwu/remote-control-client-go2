@@ -1186,12 +1186,12 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 
 	client.pubPc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		client.dataChannel = dc
-	
+
 		if r.OnDataChannel != nil {
 			r.OnDataChannel(dc)
 		}
 	})
-	
+
 	client.subPc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		r.OnTrack(track, receiver)
 	})
@@ -1211,7 +1211,7 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 			log.Errorf("Unmarshal:err %v", err)
 			return
 		}
-		//log.Debugf("received message:%v,data type:%T,data:%v", dataChannelMsg.Cmd, dataChannelMsg.Data, dataChannelMsg.Data)
+		log.Debugf("received message:%v,data type:%T,data:%v", dataChannelMsg.Cmd, dataChannelMsg.Data, dataChannelMsg.Data)
 		switch dataChannelMsg.Cmd {
 		case "offer":
 			var offer webrtc.SessionDescription
@@ -1339,6 +1339,12 @@ func (r *RTC) getWantConnectRequest(uid string, connectType rtc.ConnectType) err
 			if ok && client.DataChannelEable && r.ControlFunc != nil {
 				r.ControlFunc("turn", recvTurn)
 				//log.Debugf("recvTurn,%v", recvTurn)
+			}
+		case "blade": //刀片开关
+			recvBlade, ok := dataChannelMsg.Data.(float64)
+			if ok && client.DataChannelEable && r.ControlFunc != nil {
+				r.ControlFunc("blade", recvBlade)
+				log.Debugf("recvBlade,%v", recvBlade)
 			}
 		case "control":
 			recvControl, ok := dataChannelMsg.Data.(float64)
