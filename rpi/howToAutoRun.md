@@ -23,7 +23,7 @@
    命令speaker-test  -t3 测试声音输出
   
 
-1.go build生成可执行文件
+1.go build生成可执行文件ls
 2.建一个sh文件,内容如下
     #!/bin/bash
     cd /home/pi/remote-control-client-go2-0927/rpi
